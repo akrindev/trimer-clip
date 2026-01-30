@@ -194,7 +194,7 @@ class FFmpegWrapper:
         # Portrait videos need smaller fonts since width is limited
         if is_portrait:
             # Scale font size based on width (1080p portrait = use smaller fonts)
-            adjusted_font_size = min(font_size, int(height * 0.01))
+            adjusted_font_size = min(font_size, int(height * 0.04))
         else:
             adjusted_font_size = font_size
         

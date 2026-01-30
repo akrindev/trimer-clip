@@ -82,11 +82,12 @@ def download_video(
             }
 
             if audio_only:
-                audio_path = Path(ydl_opts["outtmpl"] % info).with_suffix(f".{audio_format}")
-                result["audio_path"] = str(audio_path)
+                # yt-dlp might have changed the extension during post-processing
+                audio_path = info.get("_filename")
+                result["audio_path"] = str(audio_path) if audio_path else None
             else:
-                video_path = Path(ydl_opts["outtmpl"] % info)
-                result["video_path"] = str(video_path)
+                video_path = info.get("_filename")
+                result["video_path"] = str(video_path) if video_path else None
 
                 thumbnail = info.get("thumbnail")
                 if thumbnail:

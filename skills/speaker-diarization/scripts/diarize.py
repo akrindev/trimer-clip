@@ -5,7 +5,7 @@ import json
 import argparse
 from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).parent.parent.parent / "scripts"))
+sys.path.insert(0, str(Path(__file__).parent.parent.parent.parent / "scripts"))
 
 from shared.ffmpeg_wrapper import FFmpegWrapper
 from shared.audio_utils import extract_audio_from_video

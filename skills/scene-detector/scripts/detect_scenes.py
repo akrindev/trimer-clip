@@ -4,7 +4,7 @@ import json
 import argparse
 from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).parent.parent.parent / "scripts"))
+sys.path.insert(0, str(Path(__file__).parent.parent.parent.parent / "scripts"))
 
 try:
     from scenedetect import detect, ContentDetector, split_video_ffmpeg

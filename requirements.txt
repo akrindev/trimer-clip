@@ -1,0 +1,40 @@
+# Core
+ffmpeg-python>=0.2.0
+pydub>=0.25.0
+python-dotenv>=1.0.0
+
+# Transcription
+openai-whisper>=20231117
+faster-whisper>=1.0.0
+
+# Speaker Diarization
+pyannote.audio>=3.1.0
+speechbrain>=0.5.0
+
+# Gemini API
+google-generativeai>=0.8.0
+
+# Audio Processing
+librosa>=0.10.0
+soundfile>=0.12.0
+numpy>=1.24.0
+
+# Scene Detection
+scenedetect[opencv]>=0.6.0
+opencv-python>=4.8.0
+
+# Video Processing
+moviepy>=1.0.3
+Pillow>=10.0.0
+
+# ML Models
+transformers>=4.35.0
+torch>=2.1.0
+torchaudio>=2.1.0
+
+# YouTube Download
+yt-dlp>=2024.1.1
+
+# Development
+ruff>=0.1.0
+pytest>=7.4.0

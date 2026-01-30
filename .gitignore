@@ -1,0 +1,68 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+
+# Virtual environments
+venv/
+ENV/
+env/
+.venv/
+
+# IDEs
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Project specific
+downloads/
+shorts/
+clips/
+portrait/
+speaker_segments/
+batch_output/
+*.mp4
+*.wav
+*.mp3
+*.srt
+*.vtt
+*.json
+!SKILL.md
+!references/*.md
+
+# Model cache
+*.pth
+*.pt
+*.ckpt
+models/
+
+# Logs
+*.log
+
+# Cache
+.ruff_cache/
+.pytest_cache/
+.mypy_cache/

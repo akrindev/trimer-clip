@@ -1,0 +1,282 @@
+import subprocess
+import json
+from typing import Optional, List, Dict, Any
+from pathlib import Path
+
+
+class FFmpegWrapper:
+    """Wrapper for FFmpeg operations with error handling and logging."""
+
+    def __init__(self, ffmpeg_path: str = "ffmpeg", ffprobe_path: str = "ffprobe"):
+        self.ffmpeg_path = ffmpeg_path
+        self.ffprobe_path = ffprobe_path
+
+    def get_video_info(self, video_path: str) -> Dict[str, Any]:
+        """Get video information using ffprobe."""
+        cmd = [
+            self.ffprobe_path,
+            "-v",
+            "quiet",
+            "-print_format",
+            "json",
+            "-show_format",
+            "-show_streams",
+            video_path,
+        ]
+        result = subprocess.run(cmd, capture_output=True, text=True)
+        if result.returncode != 0:
+            raise RuntimeError(f"Failed to get video info: {result.stderr}")
+        return json.loads(result.stdout)
+
+    def get_duration(self, video_path: str) -> float:
+        """Get video duration in seconds."""
+        info = self.get_video_info(video_path)
+        return float(info["format"]["duration"])
+
+    def get_resolution(self, video_path: str) -> tuple[int, int]:
+        """Get video resolution (width, height)."""
+        info = self.get_video_info(video_path)
+        video_stream = next((s for s in info["streams"] if s["codec_type"] == "video"), None)
+        if not video_stream:
+            raise ValueError("No video stream found")
+        return int(video_stream["width"]), int(video_stream["height"])
+
+    def extract_audio(self, video_path: str, output_path: str, sample_rate: int = 16000) -> bool:
+        """Extract audio from video."""
+        cmd = [
+            self.ffmpeg_path,
+            "-i",
+            video_path,
+            "-vn",
+            "-acodec",
+            "pcm_s16le",
+            "-ar",
+            str(sample_rate),
+            "-ac",
+            "1",
+            "-y",
+            output_path,
+        ]
+        result = subprocess.run(cmd, capture_output=True, text=True)
+        return result.returncode == 0
+
+    def trim_video(
+        self,
+        input_path: str,
+        output_path: str,
+        start_time: float,
+        end_time: float,
+        reencode: bool = False,
+        vcodec: Optional[str] = None,
+        acodec: Optional[str] = None,
+    ) -> bool:
+        """Trim video to specified time range."""
+        duration = end_time - start_time
+
+        cmd = [
+            self.ffmpeg_path,
+            "-i",
+            input_path,
+            "-ss",
+            str(start_time),
+            "-t",
+            str(duration),
+            "-y",
+        ]
+
+        if reencode:
+            cmd.extend(["-c:v", vcodec or "libx264", "-preset", "fast", "-crf", "23"])
+            cmd.extend(["-c:a", acodec or "aac"])
+        else:
+            cmd.extend(["-c", "copy"])
+
+        cmd.append(output_path)
+
+        result = subprocess.run(cmd, capture_output=True, text=True)
+        if result.returncode != 0:
+            raise RuntimeError(f"FFmpeg error: {result.stderr}")
+        return True
+
+    def resize_video(
+        self,
+        input_path: str,
+        output_path: str,
+        width: int,
+        height: int,
+        crop_mode: str = "center",
+        fill_color: str = "black",
+    ) -> bool:
+        """Resize video to target dimensions."""
+        input_width, input_height = self.get_resolution(input_path)
+        input_aspect = input_width / input_height
+        target_aspect = width / height
+
+        cmd = [self.ffmpeg_path, "-i", input_path]
+
+        if input_aspect > target_aspect:
+            new_width = width
+            new_height = int(width / input_aspect)
+            crop_filter = f"crop={new_width}:{new_height}:0:{(height - new_height) // 2}"
+        else:
+            new_width = int(height * input_aspect)
+            new_height = height
+            crop_filter = f"crop={new_width}:{new_height}:{(width - new_width) // 2}:0"
+
+        cmd.extend(
+            [
+                "-vf",
+                f"scale={new_width}:{new_height},pad={width}:{height}:(ow-iw)/2:(oh-ih)/2:{fill_color}",
+                "-c:a",
+                "copy",
+                "-y",
+                output_path,
+            ]
+        )
+
+        result = subprocess.run(cmd, capture_output=True, text=True)
+        return result.returncode == 0
+
+    def concat_videos(
+        self,
+        input_paths: List[str],
+        output_path: str,
+        reencode: bool = False,
+    ) -> bool:
+        """Concatenate multiple videos."""
+        concat_list = Path("concat_list.txt")
+        try:
+            with open(concat_list, "w") as f:
+                for path in input_paths:
+                    f.write(f"file '{path}'\n")
+
+            cmd = [
+                self.ffmpeg_path,
+                "-f",
+                "concat",
+                "-safe",
+                "0",
+                "-i",
+                str(concat_list),
+                "-c",
+                "copy" if not reencode else "libx264",
+                "-y",
+                output_path,
+            ]
+
+            result = subprocess.run(cmd, capture_output=True, text=True)
+            return result.returncode == 0
+        finally:
+            if concat_list.exists():
+                concat_list.unlink()
+
+    def add_subtitle(
+        self,
+        video_path: str,
+        subtitle_path: str,
+        output_path: str,
+        font_name: str = "Arial",
+        font_size: int = 24,
+        font_color: str = "white",
+        outline_color: str = "black",
+        outline_width: int = 2,
+        position: str = "bottom",
+    ) -> bool:
+        """Add subtitle overlay to video."""
+        x_pos = "(w-tw)/2"
+        y_pos = "h-50" if position == "bottom" else "50"
+
+        subtitle_filter = (
+            f"subtitles={subtitle_path}:force_style='"
+            f"Fontname={font_name},"
+            f"FontSize={font_size},"
+            f"PrimaryColour=&H{font_color},"
+            f"OutlineColour=&H{outline_color},"
+            f"OutlineWidth={outline_width},"
+            f"Alignment=2,"
+            f"MarginV=20'"
+        )
+
+        cmd = [
+            self.ffmpeg_path,
+            "-i",
+            video_path,
+            "-vf",
+            subtitle_filter,
+            "-c:a",
+            "copy",
+            "-y",
+            output_path,
+        ]
+
+        result = subprocess.run(cmd, capture_output=True, text=True)
+        return result.returncode == 0
+
+    def detect_scenes(self, video_path: str, threshold: float = 0.3) -> List[Dict[str, float]]:
+        """Detect scene changes in video using FFmpeg."""
+        cmd = [
+            self.ffmpeg_path,
+            "-i",
+            video_path,
+            "-vf",
+            f"select='gt(scene,{threshold}),showinfo'",
+            "-f",
+            "null",
+            "-",
+        ]
+
+        result = subprocess.run(cmd, capture_output=True, text=True, stderr=subprocess.STDOUT)
+        scenes = []
+
+        for line in result.stdout.split("\n"):
+            if "pts_time:" in line:
+                time_str = line.split("pts_time:")[1].split()[0]
+                scenes.append({"timestamp": float(time_str)})
+
+        return scenes
+
+    def crop_to_portrait(
+        self,
+        input_path: str,
+        output_path: str,
+        target_width: int = 1080,
+        target_height: int = 1920,
+        focus_point: Optional[tuple] = None,
+    ) -> bool:
+        """Crop video to portrait 9:16 format with smart focus."""
+        input_width, input_height = self.get_resolution(input_path)
+
+        if focus_point:
+            fx, fy = focus_point
+        else:
+            fx, fy = input_width / 2, input_height / 2
+
+        target_aspect = target_width / target_height
+        input_aspect = input_width / input_height
+
+        if input_aspect > target_aspect:
+            new_width = int(target_height * input_aspect)
+            new_height = target_height
+        else:
+            new_width = target_width
+            new_height = int(target_width / input_aspect)
+
+        crop_x = max(0, int(fx - new_width / 2))
+        crop_y = max(0, int(fy - new_height / 2))
+
+        crop_x = min(crop_x, input_width - new_width)
+        crop_y = min(crop_y, input_height - new_height)
+
+        cmd = [
+            self.ffmpeg_path,
+            "-i",
+            input_path,
+            "-vf",
+            f"crop={new_width}:{new_height}:{crop_x}:{crop_y},scale={target_width}:{target_height}",
+            "-c:a",
+            "copy",
+            "-y",
+            output_path,
+        ]
+
+        result = subprocess.run(cmd, capture_output=True, text=True)
+        return result.returncode == 0

@@ -41,20 +41,20 @@ python -m trimer_clip.autocut video.mp4 --num-clips 5 --platform shorts
 
 ## 📦 Available Skills
 
-| Skill | Description | Status |
-|--------|-------------|--------|
-| `youtube-downloader` | Download videos from YouTube URLs | ✅ Ready |
-| `video-transcriber` | Transcribe audio using Whisper or Gemini API | ✅ Ready |
+| Skill                 | Description                                      | Status  |
+| --------------------- | ------------------------------------------------ | ------- |
+| `youtube-downloader`  | Download videos from YouTube URLs                | ✅ Ready |
+| `video-transcriber`   | Transcribe audio using Whisper or Gemini API     | ✅ Ready |
 | `speaker-diarization` | Advanced speaker diarization with pyannote-audio | ✅ Ready |
-| `scene-detector` | Detect scene changes and shot boundaries | ✅ Ready |
-| `laughter-detector` | Find humorous/laughing segments | ✅ Ready |
-| `sentiment-analyzer` | Analyze emotion and sentiment | ✅ Ready |
-| `highlight-scanner` | Combine all signals to find viral moments | ✅ Ready |
-| `video-trimmer` | Trim/cut videos by timestamp | ✅ Ready |
-| `portrait-resizer` | Convert to 9:16 vertical format | ✅ Ready |
-| `subtitle-overlay` | Add captions to video clips | ✅ Ready |
-| `autocut-shorts` | Main orchestration skill for full workflow | ✅ Ready |
-| `batch-processor` | Process multiple videos at once | ✅ Ready |
+| `scene-detector`      | Detect scene changes and shot boundaries         | ✅ Ready |
+| `laughter-detector`   | Find humorous/laughing segments                  | ✅ Ready |
+| `sentiment-analyzer`  | Analyze emotion and sentiment                    | ✅ Ready |
+| `highlight-scanner`   | Combine all signals to find viral moments        | ✅ Ready |
+| `video-trimmer`       | Trim/cut videos by timestamp                     | ✅ Ready |
+| `portrait-resizer`    | Convert to 9:16 vertical format                  | ✅ Ready |
+| `subtitle-overlay`    | Add captions to video clips                      | ✅ Ready |
+| `autocut-shorts`      | Main orchestration skill for full workflow       | ✅ Ready |
+| `batch-processor`     | Process multiple videos at once                  | ✅ Ready |
 
 ## 📋 Requirements
 
@@ -203,14 +203,14 @@ Trimer-Clip includes **pyannote-audio** integration for state-of-the-art speaker
 
 The AI agent automatically selects the best diarization method:
 
-| Content Type | Auto-Selected | Reason |
-|-------------|---------------|---------|
-| **Podcast** | pyannote | Multi-speaker, high accuracy needed |
-| **Interview** | pyannote | Precise speaker separation |
-| **Panel Discussion** | pyannote | Handles 4+ speakers, overlapping speech |
-| **Vlog** | Gemini | Single speaker, faster |
-| **Tutorial** | Gemini | Single speaker, speed priority |
-| **Gaming** | Gemini | Usually 1-2 speakers |
+| Content Type         | Auto-Selected | Reason                                  |
+| -------------------- | ------------- | --------------------------------------- |
+| **Podcast**          | pyannote      | Multi-speaker, high accuracy needed     |
+| **Interview**        | pyannote      | Precise speaker separation              |
+| **Panel Discussion** | pyannote      | Handles 4+ speakers, overlapping speech |
+| **Vlog**             | Gemini        | Single speaker, faster                  |
+| **Tutorial**         | Gemini        | Single speaker, speed priority          |
+| **Gaming**           | Gemini        | Usually 1-2 speakers                    |
 
 ### Manual Override
 
@@ -386,7 +386,7 @@ MIT License - see [LICENSE](LICENSE) file for details.
 
 **Syakirin Amin**
 - GitHub: [@akrindev](https://github.com/akrindev)
-- Email: akrinmin@gmail.com
+- X: [@syakirinam](https://x.com/syakirinam)
 
 ## 🌟 Star History
 

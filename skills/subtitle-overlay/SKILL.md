@@ -34,7 +34,7 @@ python skills/subtitle-overlay/scripts/add_subtitles.py <video_path> --subtitle 
 **Options:**
 - `--subtitle, -s`: Path to subtitle file (SRT/VTT) - required
 - `--output, -o`: Output video path
-- `--font`: Font name (default: Arial)
+- `--font`: Font name (default: Plus Jakarta Sans)
 - `--font-size`: Font size (default: 24)
 - `--font-color`: Font color (default: white)
 - `--outline-color`: Outline color (default: black)
@@ -78,7 +78,7 @@ python skills/subtitle-overlay/scripts/generate_and_add.py video.mp4 video.txt -
 ## Style Presets
 
 ### TikTok Style
-- Font: Arial Bold
+- Font: Plus Jakarta Sans
 - Size: 28px
 - Color: White
 - Outline: Black, 2px
@@ -86,7 +86,7 @@ python skills/subtitle-overlay/scripts/generate_and_add.py video.mp4 video.txt -
 - Margin: 20px
 
 ### YouTube Shorts Style
-- Font: Roboto
+- Font: Plus Jakarta Sans
 - Size: 26px
 - Color: White
 - Outline: Black, 3px
@@ -94,7 +94,7 @@ python skills/subtitle-overlay/scripts/generate_and_add.py video.mp4 video.txt -
 - Margin: 30px
 
 ### Instagram Reels Style
-- Font: SF Pro
+- Font: Plus Jakarta Sans
 - Size: 24px
 - Color: White
 - Outline: Black, 2px
@@ -102,7 +102,7 @@ python skills/subtitle-overlay/scripts/generate_and_add.py video.mp4 video.txt -
 - Margin: 25px
 
 ### Default Style
-- Font: Arial
+- Font: Plus Jakarta Sans
 - Size: 24px
 - Color: White
 - Outline: Black, 2px
@@ -117,7 +117,7 @@ python skills/subtitle-overlay/scripts/generate_and_add.py video.mp4 video.txt -
   "input_subtitle": "video.srt",
   "output_video": "video_subtitled.mp4",
   "style": {
-    "font": "Arial",
+    "font": "Plus Jakarta Sans",
     "font_size": 24,
     "font_color": "white",
     "outline_color": "black",

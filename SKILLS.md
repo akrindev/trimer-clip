@@ -276,26 +276,26 @@ virality_score = (
 ### TikTok
 - Resolution: 1080x1920
 - Duration: 15-60s
-- Style: Arial Bold, 28px, white with black outline
+- Style: Plus Jakarta Sans, 28px, white with black outline
 
 ### YouTube Shorts
 - Resolution: 1080x1920
 - Duration: 15-60s
-- Style: Roboto, 26px, white with black outline
+- Style: Plus Jakarta Sans, 26px, white with black outline
 
 ### Instagram Reels
 - Resolution: 1080x1920
 - Duration: 15-90s
-- Style: SF Pro, 24px, white with black outline
+- Style: Plus Jakarta Sans, 24px, white with black outline
 
 ## Performance Benchmarks
 
 | Video Length | Processing Time |
-|--------------|-----------------|
-| 1 minute | 30-60 seconds |
-| 10 minutes | 3-5 minutes |
-| 30 minutes | 8-12 minutes |
-| 1 hour | 15-25 minutes |
+| ------------ | --------------- |
+| 1 minute     | 30-60 seconds   |
+| 10 minutes   | 3-5 minutes     |
+| 30 minutes   | 8-12 minutes    |
+| 1 hour       | 15-25 minutes   |
 
 ## Tips and Best Practices
 

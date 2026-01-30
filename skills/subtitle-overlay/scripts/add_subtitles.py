@@ -11,35 +11,35 @@ from shared.ffmpeg_wrapper import FFmpegWrapper
 
 STYLE_PRESETS = {
     "tiktok": {
-        "font": "Arial Bold",
-        "font_size": 28,
+        "font": "Plus Jakarta Sans",
+        "font_size": 8,  # Smaller for portrait
         "font_color": "white",
         "outline_color": "black",
-        "outline_width": 2,
+        "outline_width": 1,
         "position": "bottom",
     },
     "shorts": {
-        "font": "Roboto",
-        "font_size": 26,
+        "font": "Plus Jakarta Sans",
+        "font_size": 6,  # Smaller for portrait
         "font_color": "white",
         "outline_color": "black",
-        "outline_width": 3,
+        "outline_width": 1,
         "position": "bottom",
     },
     "reels": {
-        "font": "SF Pro",
-        "font_size": 24,
+        "font": "Plus Jakarta Sans",
+        "font_size": 6,  # Smaller for portrait
         "font_color": "white",
         "outline_color": "black",
-        "outline_width": 2,
+        "outline_width": 1,
         "position": "bottom",
     },
     "default": {
-        "font": "Arial",
-        "font_size": 24,
+        "font": "Plus Jakarta Sans",
+        "font_size": 8,  # Smaller for portrait
         "font_color": "white",
         "outline_color": "black",
-        "outline_width": 2,
+        "outline_width": 1,
         "position": "bottom",
     },
 }

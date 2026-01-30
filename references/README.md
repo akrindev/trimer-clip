@@ -30,7 +30,7 @@ ffmpeg -i video.mp4 -vf "crop=1080:1920:420:0" -c:a copy output.mp4
 
 **Add subtitles:**
 ```bash
-ffmpeg -i video.mp4 -vf "subtitles=subtitle.srt:force_style='FontName=Arial,FontSize=24'" -c:a copy output.mp4
+ffmpeg -i video.mp4 -vf "subtitles=subtitle.srt:force_style='FontName=Plus Jakarta Sans,FontSize=24'" -c:a copy output.mp4
 ```
 
 ### Advanced Filters

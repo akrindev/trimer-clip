@@ -39,17 +39,20 @@ def detect_scenes(
         duration = ffmpeg.get_duration(video_path)
 
         scene_list = detect(
-            video_path, ContentDetector(threshold=threshold, min_scene_len=min_scene_len)
+            video_path, ContentDetector(threshold=threshold, min_scene_len=int(min_scene_len * 30))
         )
 
         scenes = []
         for i, scene in enumerate(scene_list, 1):
+            # scene is a tuple of (start_timecode, end_timecode)
+            start_time = scene[0].get_seconds()
+            end_time = scene[1].get_seconds()
             scenes.append(
                 {
                     "scene_number": i,
-                    "start_time": scene.get("start", 0),
-                    "end_time": scene.get("end", scene.get("start", 0) + scene.get("duration", 0)),
-                    "duration": scene.get("duration", 0),
+                    "start_time": start_time,
+                    "end_time": end_time,
+                    "duration": end_time - start_time,
                     "content_type": "adaptive",
                 }
             )

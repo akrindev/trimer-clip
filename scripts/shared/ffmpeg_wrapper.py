@@ -126,6 +126,10 @@ class FFmpegWrapper:
             [
                 "-vf",
                 f"scale={new_width}:{new_height},pad={width}:{height}:(ow-iw)/2:(oh-ih)/2:{fill_color}",
+                "-map",
+                "0:v:0",
+                "-map",
+                "0:a:0?",
                 "-c:a",
                 "copy",
                 "-y",
@@ -180,6 +184,7 @@ class FFmpegWrapper:
         outline_color: str = "black",
         outline_width: int = 1.5,
         position: str = "bottom",
+        force_style: bool = True,
     ) -> bool:
         """Add subtitle overlay to video."""
         # Get video dimensions to calculate appropriate font size
@@ -189,7 +194,7 @@ class FFmpegWrapper:
         except:
             is_portrait = False
             height = 1920
-        
+
         # Adjust font size for portrait videos (smaller relative to screen)
         # Portrait videos need smaller fonts since width is limited
         if is_portrait:
@@ -197,7 +202,7 @@ class FFmpegWrapper:
             adjusted_font_size = min(font_size, int(height * 0.04))
         else:
             adjusted_font_size = font_size
-        
+
         # ASS color format is &HAABBGGRR (alpha, blue, green, red)
         color_map = {
             "white": "&H00FFFFFF",
@@ -208,33 +213,36 @@ class FFmpegWrapper:
             "green": "&H0000FF00",
             "orange": "&H00004080",  # Dark orange/burnt orange in BGR format
         }
-        
+
         primary_color = color_map.get(font_color.lower(), "&H00FFFFFF")
         outline_col = color_map.get(outline_color.lower(), "&H00000000")
-        
+
         # MarginV controls vertical margin from bottom (or top if Alignment changes)
         # Alignment=2 means bottom-center
         # Increased MarginV to push subtitles further up from the very bottom
         margin_v = 80 if is_portrait else 40
-        
+
         # Escape the subtitle path for FFmpeg
         escaped_subtitle_path = subtitle_path.replace("'", r"'\''").replace(":", r"\:")
-        
+
         # Get absolute path to fonts directory
         fonts_dir = str(Path(__file__).parent.parent.parent / "fonts")
-        
-        subtitle_filter = (
-            f"subtitles='{escaped_subtitle_path}':fontsdir='{fonts_dir}':force_style='"
-            f"Fontname={font_name},"
-            f"FontSize={adjusted_font_size},"
-            f"PrimaryColour={primary_color},"
-            f"OutlineColour={outline_col},"
-            f"BorderStyle=1,"
-            f"Outline={outline_width},"
-            f"Shadow=0,"
-            f"Alignment=2,"
-            f"MarginV={margin_v}'"
-        )
+
+        if force_style:
+            subtitle_filter = (
+                f"subtitles='{escaped_subtitle_path}':fontsdir='{fonts_dir}':force_style='"
+                f"Fontname={font_name},"
+                f"FontSize={adjusted_font_size},"
+                f"PrimaryColour={primary_color},"
+                f"OutlineColour={outline_col},"
+                f"BorderStyle=1,"
+                f"Outline={outline_width},"
+                f"Shadow=0,"
+                f"Alignment=2,"
+                f"MarginV={margin_v}'"
+            )
+        else:
+            subtitle_filter = f"subtitles='{escaped_subtitle_path}':fontsdir='{fonts_dir}'"
 
         cmd = [
             self.ffmpeg_path,
@@ -242,6 +250,10 @@ class FFmpegWrapper:
             video_path,
             "-vf",
             subtitle_filter,
+            "-map",
+            "0:v:0",
+            "-map",
+            "0:a:0?",
             "-c:a",
             "copy",
             "-y",
@@ -296,7 +308,7 @@ class FFmpegWrapper:
         # We want to crop from the input to get the target aspect ratio
         crop_height = input_height
         crop_width = int(input_height * target_aspect)
-        
+
         # If calculated crop width is larger than input width, adjust
         if crop_width > input_width:
             crop_width = input_width
@@ -309,7 +321,7 @@ class FFmpegWrapper:
         # Ensure crop stays within bounds
         crop_x = min(crop_x, input_width - crop_width)
         crop_y = min(crop_y, input_height - crop_height)
-        
+
         # Ensure non-negative values
         crop_x = max(0, crop_x)
         crop_y = max(0, crop_y)
@@ -320,6 +332,10 @@ class FFmpegWrapper:
             input_path,
             "-vf",
             f"crop={crop_width}:{crop_height}:{crop_x}:{crop_y},scale={target_width}:{target_height}",
+            "-map",
+            "0:v:0",
+            "-map",
+            "0:a:0?",
             "-c:a",
             "copy",
             "-y",

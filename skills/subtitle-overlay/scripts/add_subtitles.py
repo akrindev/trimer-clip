@@ -57,6 +57,7 @@ def add_subtitles(
     outline_width: int = None,
     position: str = None,
     no_outline: bool = False,
+    force_style: bool = True,
 ) -> dict:
     """Add burned-in subtitles to video."""
 
@@ -91,6 +92,7 @@ def add_subtitles(
             outline_color=final_outline_color,
             outline_width=final_outline_width,
             position=final_position,
+            force_style=force_style,
         )
 
         if success:
@@ -155,6 +157,11 @@ def main():
     parser.add_argument("--outline-width", type=int, help="Outline width")
     parser.add_argument("--position", choices=["bottom", "top", "center"], help="Text position")
     parser.add_argument("--no-outline", action="store_true", help="Disable outline")
+    parser.add_argument(
+        "--use-ass-style",
+        action="store_true",
+        help="Use styles defined in ASS subtitle file",
+    )
 
     args = parser.parse_args()
 
@@ -170,6 +177,7 @@ def main():
         outline_width=args.outline_width,
         position=args.position,
         no_outline=args.no_outline,
+        force_style=not args.use_ass_style,
     )
 
     print(json.dumps(result, indent=2, ensure_ascii=False))

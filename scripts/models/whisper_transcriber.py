@@ -1,12 +1,13 @@
 import whisper
+
 try:
     import faster_whisper
+
     FASTER_WHISPER_AVAILABLE = True
 except ImportError:
     faster_whisper = None
     FASTER_WHISPER_AVAILABLE = False
 from typing import List, Dict, Any, Optional
-from pathlib import Path
 
 
 class WhisperTranscriber:
@@ -39,6 +40,7 @@ class WhisperTranscriber:
             device = self.device
             if device == "auto":
                 import torch
+
                 device = "cuda" if torch.cuda.is_available() else "cpu"
             return whisper.load_model(self.model_size, device=device)
 
@@ -67,7 +69,7 @@ class WhisperTranscriber:
                     "start": segment.start,
                     "end": segment.end,
                     "text": segment.text.strip(),
-                    "words": segment.words if word_timestamps else [],
+                    "words": self._normalize_words(segment.words) if word_timestamps else [],
                 }
             )
 
@@ -93,7 +95,7 @@ class WhisperTranscriber:
                     "start": segment["start"],
                     "end": segment["end"],
                     "text": segment["text"].strip(),
-                    "words": segment.get("words", []),
+                    "words": self._normalize_words(segment.get("words", [])),
                 }
             )
 
@@ -139,6 +141,33 @@ class WhisperTranscriber:
         s = int(seconds % 60)
         ms = int((seconds % 1) * 1000)
         return f"{h:02d}:{m:02d}:{s:02d}.{ms:03d}"
+
+    def _normalize_words(self, words: List[Any]) -> List[Dict[str, Any]]:
+        """Normalize word timestamps for JSON output."""
+        normalized = []
+        for word in words or []:
+            if isinstance(word, dict):
+                if "word" in word and "start" in word and "end" in word:
+                    normalized.append(
+                        {
+                            "word": word.get("word", "").strip(),
+                            "start": float(word.get("start", 0)),
+                            "end": float(word.get("end", 0)),
+                            "probability": word.get("probability"),
+                        }
+                    )
+                continue
+
+            if hasattr(word, "word") and hasattr(word, "start") and hasattr(word, "end"):
+                normalized.append(
+                    {
+                        "word": str(getattr(word, "word", "")).strip(),
+                        "start": float(getattr(word, "start", 0)),
+                        "end": float(getattr(word, "end", 0)),
+                        "probability": getattr(word, "probability", None),
+                    }
+                )
+        return normalized
 
     def transcribe_to_file(self, audio_path: str, output_path: str, format: str = "srt") -> bool:
         """Transcribe and save to file."""

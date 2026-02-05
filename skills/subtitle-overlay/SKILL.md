@@ -1,6 +1,6 @@
 ---
 name: subtitle-overlay
-description: Add burned-in subtitles/captions to video clips. Supports SRT/VTT subtitle files, customizable styling (font, size, color, position), and platform-specific presets for TikTok, YouTube Shorts, and Instagram Reels.
+description: Add burned-in subtitles/captions to video clips. Supports SRT/VTT/ASS subtitle files, customizable styling (font, size, color, position), and platform-specific presets for TikTok, YouTube Shorts, and Instagram Reels.
 allowed-tools: Bash(ffmpeg:*) Bash(python:*)
 compatibility: Requires FFmpeg
 metadata:
@@ -32,7 +32,7 @@ python skills/subtitle-overlay/scripts/add_subtitles.py <video_path> --subtitle 
 ```
 
 **Options:**
-- `--subtitle, -s`: Path to subtitle file (SRT/VTT) - required
+- `--subtitle, -s`: Path to subtitle file (SRT/VTT/ASS) - required
 - `--output, -o`: Output video path
 - `--font`: Font name (default: Plus Jakarta Sans)
 - `--font-size`: Font size (default: 24)
@@ -42,6 +42,7 @@ python skills/subtitle-overlay/scripts/add_subtitles.py <video_path> --subtitle 
 - `--position`: Text position (bottom, top, center) - default: bottom
 - `--style`: Style preset (tiktok, shorts, reels, default)
 - `--no-outline`: Disable text outline
+- `--use-ass-style`: Use styles defined in ASS subtitle file
 
 **Examples:**
 
@@ -152,6 +153,10 @@ This is the first subtitle.
 00:00:05.000 --> 00:00:10.000
 This is the second subtitle.
 ```
+
+### ASS (Karaoke) Format
+
+Use ASS for word-level highlights and custom styling. Pass `--use-ass-style` to keep the ASS styles intact.
 
 ## Integration with Other Skills
 

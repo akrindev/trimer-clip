@@ -1,8 +1,8 @@
 ---
 name: portrait-resizer
-description: Convert videos to 9:16 portrait format (1080x1920) for TikTok, YouTube Shorts, Instagram Reels, and Facebook Reels. Supports smart cropping (focus on faces/subjects), center cropping, and letterboxing. Maintains aspect ratio and quality.
+description: Convert videos to 9:16 portrait format (1080x1920) for TikTok, YouTube Shorts, Instagram Reels, and Facebook Reels. Supports smart cropping (face-aware), center cropping, and letterboxing. Maintains aspect ratio and quality.
 allowed-tools: Bash(ffmpeg:*)
-compatibility: Requires FFmpeg and OpenCV
+compatibility: Requires FFmpeg and OpenCV (MediaPipe optional for face detection)
 metadata:
   version: "1.0"
   formats: "9:16 portrait"
@@ -98,10 +98,10 @@ python skills/portrait-resizer/scripts/batch_resize.py --input-dir ./clips/ --ou
 ### Smart Crop (Default)
 
 Intelligently crops to focus on subjects:
-- Detects faces and main subjects
-- Analyzes motion and activity
-- Centers on the most important area
-- Best for talking-head, interviews, tutorials
+- Detects faces (MediaPipe if available, otherwise OpenCV Haar)
+- Samples frames across the clip to find dominant face position
+- Centers crop on weighted face centroid
+- Falls back to center crop if no faces detected
 
 ### Center Crop
 
@@ -182,11 +182,10 @@ presets = {
 
 ## Smart Crop Algorithm
 
-1. **Face Detection**: Uses OpenCV Haar Cascades to detect faces
-2. **Motion Analysis**: Identifies areas with highest motion activity
-3. **Center Weighting**: Gives slight preference to center (0.5, 0.5)
-4. **Subject Tracking**: Maintains focus on moving subjects
-5. **Fallback**: Uses center crop if no faces/motion detected
+1. **Face Detection**: Uses MediaPipe (if available) or OpenCV Haar Cascades
+2. **Frame Sampling**: Samples frames at a fixed rate for stable focus
+3. **Weighted Average**: Chooses dominant face using size/confidence weighting
+4. **Fallback**: Uses center crop if no faces detected
 
 ## Integration with Other Skills
 
@@ -224,6 +223,7 @@ After resizing, you can use these skills:
 - **Small videos**: Minimum resolution checks
 - **Already portrait**: Returns as-is or error
 - **Face detection failure**: Falls back to center crop
+- **MediaPipe unavailable**: Automatically uses OpenCV Haar cascade
 - **Codec issues**: Re-encodes with standard codecs
 
 ## References

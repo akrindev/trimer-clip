@@ -78,7 +78,10 @@ def download_video(
                 "uploader": info.get("uploader"),
                 "upload_date": info.get("upload_date"),
                 "view_count": info.get("view_count"),
-                "url": url,
+                "url": info.get("webpage_url") or url,
+                "video_id": info.get("id"),
+                "description": info.get("description"),
+                "tags": info.get("tags") or [],
             }
 
             if audio_only:

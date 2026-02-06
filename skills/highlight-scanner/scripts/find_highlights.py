@@ -89,6 +89,11 @@ def find_highlights(
         if sentiment_path:
             segments = integrate_sentiment(sentiment_path, segments)
 
+        if not segments and transcript_path:
+            segments = fallback_segments_from_transcript(
+                transcript_path, min_duration, max_duration
+            )
+
         segments = calculate_virality_scores(segments, weights)
         segments = filter_by_duration(segments, min_duration, max_duration)
         segments = rank_and_select(segments, num_clips)
@@ -160,6 +165,51 @@ def analyze_transcript(transcript_path: str, existing_segments: list) -> list:
                         "scene_score": 0,
                     }
                 )
+
+    return segments
+
+
+def fallback_segments_from_transcript(
+    transcript_path: str, min_duration: float, max_duration: float
+) -> list:
+    """Fallback: build segments from transcript timing when no keywords match."""
+    transcript = parse_srt(transcript_path)
+    if not transcript:
+        return []
+
+    segments = []
+    idx = 0
+    total = len(transcript)
+
+    while idx < total:
+        start = transcript[idx]["start"]
+        end = transcript[idx]["end"]
+        text_parts = [transcript[idx]["text"]]
+        idx += 1
+
+        while idx < total and end - start < min_duration:
+            end = transcript[idx]["end"]
+            text_parts.append(transcript[idx]["text"])
+            idx += 1
+
+        if end - start < min_duration:
+            break
+
+        if end - start > max_duration:
+            end = start + max_duration
+
+        segments.append(
+            {
+                "start": start,
+                "end": end,
+                "transcript_score": 0,
+                "laughter_score": 0,
+                "sentiment_score": 0,
+                "scene_score": 0,
+                "keywords": [],
+                "text": " ".join(text_parts)[:200],
+            }
+        )
 
     return segments
 

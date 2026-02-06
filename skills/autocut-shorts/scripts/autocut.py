@@ -5,6 +5,7 @@ import json
 import argparse
 import time
 import re
+import types
 from datetime import datetime
 from urllib.parse import urlparse, parse_qs
 from pathlib import Path
@@ -15,7 +16,39 @@ from shared.ffmpeg_wrapper import FFmpegWrapper
 from shared.subtitle_utils import build_karaoke_ass, load_word_timestamps, slice_words
 from shared.video_utils import create_srt, format_srt_time, sanitize_filename
 
-sys.path.insert(0, str(Path(__file__).parent.parent.parent / "skills"))
+SKILLS_ROOT = Path(__file__).parent.parent.parent
+sys.path.insert(0, str(SKILLS_ROOT))
+
+
+def _alias_skill_package(name: str, directory: Path) -> None:
+    if name in sys.modules:
+        return
+    module = types.ModuleType(name)
+    module.__path__ = [str(directory)]
+    sys.modules[name] = module
+
+
+def _register_skill_aliases() -> None:
+    aliases = {
+        "youtube_downloader": "youtube-downloader",
+        "video_transcriber": "video-transcriber",
+        "speaker_diarization": "speaker-diarization",
+        "scene_detector": "scene-detector",
+        "laughter_detector": "laughter-detector",
+        "sentiment_analyzer": "sentiment-analyzer",
+        "highlight_scanner": "highlight-scanner",
+        "video_trimmer": "video-trimmer",
+        "portrait_resizer": "portrait-resizer",
+        "subtitle_overlay": "subtitle-overlay",
+        "autocut_shorts": "autocut-shorts",
+    }
+    for alias, folder in aliases.items():
+        target = SKILLS_ROOT / folder
+        if target.exists():
+            _alias_skill_package(alias, target)
+
+
+_register_skill_aliases()
 
 
 def select_diarization_model(
@@ -460,7 +493,14 @@ def download_video(url: str, output_dir: str) -> tuple:
         result = yt_download(url, output_path=f"{output_dir}/%(title)s.%(ext)s")
 
         if result["success"]:
-            return result.get("video_path"), result
+            video_path = result.get("video_path")
+            if not video_path:
+                candidates = list(Path(output_dir).glob("*.mp4"))
+                if candidates:
+                    latest = max(candidates, key=lambda p: p.stat().st_mtime)
+                    video_path = str(latest)
+                    result["video_path"] = video_path
+            return video_path, result
         return None, {}
 
     except Exception as e:

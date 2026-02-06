@@ -41,6 +41,26 @@ class FFmpegWrapper:
             raise ValueError("No video stream found")
         return int(video_stream["width"]), int(video_stream["height"])
 
+    def _get_audio_codec(self, video_path: str) -> Optional[str]:
+        """Get audio codec name if available."""
+        try:
+            info = self.get_video_info(video_path)
+            audio_stream = next((s for s in info["streams"] if s["codec_type"] == "audio"), None)
+            if not audio_stream:
+                return None
+            return audio_stream.get("codec_name")
+        except Exception:
+            return None
+
+    def _audio_args(self, video_path: str) -> List[str]:
+        """Choose audio encoding args for compatibility."""
+        codec = self._get_audio_codec(video_path)
+        if codec == "aac":
+            return ["-c:a", "copy"]
+        if codec:
+            return ["-c:a", "aac", "-b:a", "128k"]
+        return ["-c:a", "aac", "-b:a", "128k"]
+
     def extract_audio(self, video_path: str, output_path: str, sample_rate: int = 16000) -> bool:
         """Extract audio from video."""
         cmd = [
@@ -130,8 +150,7 @@ class FFmpegWrapper:
                 "0:v:0",
                 "-map",
                 "0:a:0?",
-                "-c:a",
-                "copy",
+                *self._audio_args(input_path),
                 "-y",
                 output_path,
             ]
@@ -254,8 +273,7 @@ class FFmpegWrapper:
             "0:v:0",
             "-map",
             "0:a:0?",
-            "-c:a",
-            "copy",
+            *self._audio_args(video_path),
             "-y",
             output_path,
         ]
@@ -336,8 +354,7 @@ class FFmpegWrapper:
             "0:v:0",
             "-map",
             "0:a:0?",
-            "-c:a",
-            "copy",
+            *self._audio_args(input_path),
             "-y",
             output_path,
         ]

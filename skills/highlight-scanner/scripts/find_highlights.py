@@ -62,8 +62,8 @@ def find_highlights(
     laughter_path: str = None,
     sentiment_path: str = None,
     num_clips: int = 5,
-    min_duration: float = 15,
-    max_duration: float = 60,
+    min_duration: float = 40,
+    max_duration: float = 120,
     weights: dict = None,
 ) -> dict:
     """Find viral-worthy highlight segments."""
@@ -451,8 +451,8 @@ def main():
     parser.add_argument("--laughter-path", help="Path to laughter JSON")
     parser.add_argument("--sentiment-path", help="Path to sentiment JSON")
     parser.add_argument("--num-clips", type=int, default=5)
-    parser.add_argument("--min-duration", type=float, default=15)
-    parser.add_argument("--max-duration", type=float, default=60)
+    parser.add_argument("--min-duration", type=float, default=40)
+    parser.add_argument("--max-duration", type=float, default=120)
     parser.add_argument("-o", "--output", help="Output JSON path")
 
     args = parser.parse_args()

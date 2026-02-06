@@ -243,8 +243,8 @@ def autocut(
     source: str,
     source_type: str = "auto",
     num_clips: int = 5,
-    min_duration: float = 15,
-    max_duration: float = 60,
+    min_duration: float = 40,
+    max_duration: float = 120,
     platform: str = "tiktok",
     output_dir: str = "./shorts/",
     transcription_model: str = "auto",
@@ -798,7 +798,7 @@ def process_clips(
                 str(clip_start),
                 str(clip_end),
                 trimmed_path,
-                reencode=False,
+                reencode=True,
             )
 
             if not trim_result["success"]:
@@ -886,8 +886,8 @@ def main():
     parser.add_argument("source", help="Video file path or YouTube URL")
     parser.add_argument("--source-type", choices=["auto", "file", "youtube"], default="auto")
     parser.add_argument("--num-clips", type=int, default=5)
-    parser.add_argument("--min-duration", type=float, default=15)
-    parser.add_argument("--max-duration", type=float, default=60)
+    parser.add_argument("--min-duration", type=float, default=40)
+    parser.add_argument("--max-duration", type=float, default=120)
     parser.add_argument(
         "--platform", choices=["tiktok", "shorts", "reels", "facebook"], default="tiktok"
     )

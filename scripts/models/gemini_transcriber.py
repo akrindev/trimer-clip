@@ -1,5 +1,5 @@
-import google.generativeai as genai
-from google.generativeai import types
+from google import genai
+from google.genai import types
 from typing import List, Dict, Any, Optional
 import base64
 import json
@@ -38,7 +38,7 @@ class GeminiTranscriber:
             # The new SDK handles file upload differently or we can pass the path if it supports it
             # But the most reliable way for audio is usually upload or direct bytes for small files
             # For 20 mins audio, definitely upload.
-            
+
             with open(audio_path, "rb") as f:
                 audio_bytes = f.read()
                 audio_b64 = base64.b64encode(audio_bytes).decode("utf-8")
@@ -66,10 +66,10 @@ class GeminiTranscriber:
                         role="user",
                         parts=[
                             types.Part.from_text(text=prompt),
-                            types.Part.from_bytes(data=audio_bytes, mime_type="audio/wav")
-                        ]
+                            types.Part.from_bytes(data=audio_bytes, mime_type="audio/wav"),
+                        ],
                     )
-                ]
+                ],
             )
 
             return self._parse_transcript(response.text, speaker_diarization, emotion_detection)

@@ -155,6 +155,43 @@ def _build_run_output_dir(base_dir: str, video_name: str) -> Path:
     return run_dir
 
 
+def _clean_text(value) -> str:
+    if not isinstance(value, str):
+        return ""
+    return " ".join(value.strip().split())
+
+
+def _build_highlight_copy(
+    source_title: str, highlight: dict, clip_start: float, clip_end: float
+) -> tuple:
+    base_title = _clean_text(source_title) or "Video Highlight"
+    hook_text = _clean_text(highlight.get("hook_text"))
+    transcript_text = _clean_text(highlight.get("text"))
+
+    core_text = hook_text or transcript_text
+    if not core_text:
+        core_text = "Bagian paling menarik dari pembahasan video ini."
+
+    provided_title = _clean_text(highlight.get("title"))
+    if provided_title:
+        highlight_title = provided_title
+    else:
+        sentence = core_text.split(". ")[0].strip(" .")
+        if len(sentence) > 90:
+            sentence = sentence[:87].rstrip() + "..."
+
+        rank = highlight.get("rank")
+        rank_prefix = f"[Clip {rank}] " if rank else ""
+        highlight_title = f"{rank_prefix}{sentence}" if sentence else f"{rank_prefix}{base_title}"
+
+    time_range = f"{format_srt_time(clip_start)} - {format_srt_time(clip_end)}"
+    highlight_description = (
+        f"Highlight dari: {base_title}. Rentang klip: {time_range}. Cuplikan: {core_text}"
+    )
+
+    return highlight_title, highlight_description
+
+
 def _write_clip_metadata(
     clip_dir: Path,
     highlight: dict,
@@ -177,11 +214,16 @@ def _write_clip_metadata(
     youtube_description = source_info.get("description")
     youtube_tags = source_info.get("tags") if isinstance(source_info.get("tags"), list) else []
 
-    title = source_info.get("title") or Path(source.get("path", output_path)).stem
-    hook_text = highlight.get("hook_text")
+    source_title = source_info.get("title") or Path(source.get("path", output_path)).stem
+    hook_text = _clean_text(highlight.get("hook_text")) or None
+    highlight_title, highlight_description = _build_highlight_copy(
+        source_title, highlight, clip_start, clip_end
+    )
 
     metadata = {
-        "title": title,
+        "title": highlight_title,
+        "description": highlight_description,
+        "source_title": source_title,
         "hook_text": hook_text,
         "start_time": format_srt_time(clip_start),
         "end_time": format_srt_time(clip_end),
@@ -189,8 +231,8 @@ def _write_clip_metadata(
         "has_hook": bool(hook_text),
         "has_captions": subtitle_mode in ["auto", "word", "segment"],
         "subtitle_mode": subtitle_mode,
-        "youtube_title": youtube_title or title,
-        "youtube_description": youtube_description,
+        "youtube_title": youtube_title or source_title,
+        "youtube_description": youtube_description or highlight_description,
         "youtube_tags": youtube_tags,
         "youtube_url": youtube_url,
         "youtube_video_id": youtube_video_id,
@@ -255,6 +297,9 @@ def autocut(
     huggingface_token: str = None,
     focus_speaker: str = None,
     gemini_api_key: str = None,
+    openai_api_key: str = None,
+    highlight_model: str = "heuristic",
+    highlight_ai_model: str = None,
     skip_transcribe: bool = False,
     skip_diarization: bool = False,
     skip_scenes: bool = False,
@@ -417,6 +462,10 @@ def autocut(
             min_duration,
             max_duration,
             focus_speaker=focus_speaker,
+            highlight_model=highlight_model,
+            highlight_ai_model=highlight_ai_model,
+            openai_api_key=openai_api_key,
+            gemini_api_key=gemini_api_key,
         )
 
         timings["analysis"] = time.time() - step_start
@@ -694,6 +743,10 @@ def find_highlights(
     min_duration: float,
     max_duration: float,
     focus_speaker: str = None,
+    highlight_model: str = "heuristic",
+    highlight_ai_model: str = None,
+    openai_api_key: str = None,
+    gemini_api_key: str = None,
 ) -> list:
     """Find highlight segments with speaker context."""
     try:
@@ -708,6 +761,10 @@ def find_highlights(
             num_clips=num_clips,
             min_duration=min_duration,
             max_duration=max_duration,
+            highlight_model=highlight_model,
+            highlight_ai_model=highlight_ai_model,
+            openai_api_key=openai_api_key,
+            gemini_api_key=gemini_api_key,
         )
 
         if result["success"]:
@@ -910,6 +967,11 @@ def main():
     parser.add_argument("--huggingface-token", default=os.getenv("HUGGINGFACE_TOKEN"))
     parser.add_argument("--focus-speaker", help="Focus on specific speaker (SPEAKER_00, etc.)")
     parser.add_argument("--gemini-api-key", default=os.getenv("GEMINI_API_KEY"))
+    parser.add_argument("--openai-api-key", default=os.getenv("OPENAI_API_KEY"))
+    parser.add_argument(
+        "--highlight-model", choices=["heuristic", "auto", "openai", "gemini"], default="heuristic"
+    )
+    parser.add_argument("--highlight-ai-model", default=None)
     parser.add_argument("--skip-transcribe", action="store_true")
     parser.add_argument("--skip-diarization", action="store_true")
     parser.add_argument("--skip-scenes", action="store_true")
@@ -938,6 +1000,9 @@ def main():
         huggingface_token=args.huggingface_token,
         focus_speaker=args.focus_speaker,
         gemini_api_key=args.gemini_api_key,
+        openai_api_key=args.openai_api_key,
+        highlight_model=args.highlight_model,
+        highlight_ai_model=args.highlight_ai_model,
         skip_transcribe=args.skip_transcribe,
         skip_diarization=args.skip_diarization,
         skip_scenes=args.skip_scenes,

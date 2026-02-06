@@ -1,12 +1,14 @@
 #!/usr/bin/env python3
-import sys
-import json
 import argparse
+import json
+import os
+import re
+import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent.parent.parent.parent / "scripts"))
 
-from shared.video_utils import parse_srt, clip_segment
+from shared.video_utils import parse_srt
 
 
 DEFAULT_WEIGHTS = {"transcript": 0.35, "laughter": 0.25, "sentiment": 0.25, "scenes": 0.15}
@@ -55,6 +57,274 @@ HOOK_PATTERNS = [
 ]
 
 
+def _clean_text(value) -> str:
+    if not isinstance(value, str):
+        return ""
+    return " ".join(value.strip().split())
+
+
+def _generate_title_and_hook(text: str, rank: int) -> tuple:
+    clean = _clean_text(text)
+    if not clean:
+        return f"Clip {rank}: Highlight utama", "Bagian paling menarik dari pembahasan ini"
+
+    first_sentence = clean.split(". ")[0].strip(" .")
+    if len(first_sentence) > 70:
+        first_sentence = first_sentence[:67].rstrip() + "..."
+
+    title = f"Clip {rank}: {first_sentence}" if first_sentence else f"Clip {rank}: Highlight utama"
+
+    words = clean.split()
+    hook = " ".join(words[:15]).strip(" .")
+    if len(words) > 15:
+        hook += "..."
+
+    if not hook:
+        hook = "Bagian paling menarik dari pembahasan ini"
+
+    return title, hook
+
+
+def _strip_code_fence(text: str) -> str:
+    if not isinstance(text, str):
+        return ""
+    cleaned = text.strip()
+    if cleaned.startswith("```"):
+        cleaned = re.sub(r"^```(?:json)?\\s*", "", cleaned)
+        cleaned = re.sub(r"\\s*```$", "", cleaned)
+    return cleaned.strip()
+
+
+def _parse_json_payload(payload: str):
+    cleaned = _strip_code_fence(payload)
+    if not cleaned:
+        raise ValueError("Empty AI response")
+
+    try:
+        return json.loads(cleaned)
+    except Exception:
+        pass
+
+    start = cleaned.find("[")
+    end = cleaned.rfind("]")
+    if start != -1 and end != -1 and end > start:
+        snippet = cleaned[start : end + 1]
+        return json.loads(snippet)
+
+    start = cleaned.find("{")
+    end = cleaned.rfind("}")
+    if start != -1 and end != -1 and end > start:
+        snippet = cleaned[start : end + 1]
+        parsed = json.loads(snippet)
+        if isinstance(parsed, dict) and isinstance(parsed.get("highlights"), list):
+            return parsed["highlights"]
+        raise ValueError("AI JSON object missing 'highlights' list")
+
+    raise ValueError("Could not parse AI JSON response")
+
+
+def _parse_time_value(value) -> float:
+    if isinstance(value, (int, float)):
+        return float(value)
+    if not isinstance(value, str):
+        raise ValueError("Invalid timestamp")
+
+    raw = value.strip().replace(",", ".")
+    parts = raw.split(":")
+    try:
+        if len(parts) == 3:
+            h = float(parts[0])
+            m = float(parts[1])
+            s = float(parts[2])
+            return h * 3600 + m * 60 + s
+        if len(parts) == 2:
+            m = float(parts[0])
+            s = float(parts[1])
+            return m * 60 + s
+        return float(raw)
+    except Exception as exc:
+        raise ValueError(f"Invalid timestamp: {value}") from exc
+
+
+def _build_ai_transcript_lines(transcript: list, max_chars: int = 60000) -> str:
+    lines = []
+    size = 0
+    for item in transcript:
+        line = f"[{item['start']:.2f}-{item['end']:.2f}] {item['text']}"
+        next_size = size + len(line) + 1
+        if next_size > max_chars:
+            break
+        lines.append(line)
+        size = next_size
+    return "\n".join(lines)
+
+
+def _slice_transcript_text(transcript: list, start: float, end: float) -> str:
+    parts = []
+    for item in transcript:
+        if item["end"] >= start and item["start"] <= end:
+            parts.append(item["text"])
+    return _clean_text(" ".join(parts))[:240]
+
+
+def _call_openai_highlights(prompt: str, api_key: str, model: str) -> list:
+    from openai import OpenAI
+
+    client = OpenAI(api_key=api_key)
+    response = client.chat.completions.create(
+        model=model,
+        messages=[{"role": "user", "content": prompt}],
+        temperature=0.4,
+    )
+    content = response.choices[0].message.content if response.choices else ""
+    return _parse_json_payload(content)
+
+
+def _call_gemini_highlights(prompt: str, api_key: str, model: str) -> list:
+    from google import genai
+    from google.genai import types
+
+    client = genai.Client(api_key=api_key)
+
+    requested = _clean_text(model) or "gemini-flash-lite-latest"
+    if requested.startswith("models/"):
+        requested = requested.split("/", 1)[1]
+
+    candidates = [requested]
+    prefixed = f"models/{requested}"
+    if prefixed != requested:
+        candidates.append(prefixed)
+
+    last_error = None
+    for candidate in candidates:
+        try:
+            response = client.models.generate_content(
+                model=candidate,
+                contents=prompt,
+                config=types.GenerateContentConfig(
+                    response_mime_type="application/json",
+                    temperature=0.4,
+                ),
+            )
+            return _parse_json_payload(getattr(response, "text", ""))
+        except Exception as exc:
+            last_error = exc
+
+    raise RuntimeError(str(last_error))
+
+
+def _normalize_ai_highlights(
+    ai_items: list, transcript: list, num_clips: int, min_duration: float, max_duration: float
+) -> list:
+    normalized = []
+
+    for idx, item in enumerate(ai_items or [], 1):
+        try:
+            start_raw = item.get("start")
+            end_raw = item.get("end")
+            if start_raw is None:
+                start_raw = item.get("start_time")
+            if end_raw is None:
+                end_raw = item.get("end_time")
+
+            start = _parse_time_value(start_raw)
+            end = _parse_time_value(end_raw)
+            if end <= start:
+                continue
+
+            duration = end - start
+            if duration < min_duration:
+                continue
+            if duration > max_duration:
+                end = start + max_duration
+
+            title = _clean_text(item.get("title"))
+            hook_text = _clean_text(item.get("hook_text"))
+            reasoning = _clean_text(item.get("reason") or item.get("reasoning"))
+            text = _slice_transcript_text(transcript, start, end)
+
+            if not title or not hook_text:
+                fallback_title, fallback_hook = _generate_title_and_hook(text, idx)
+                title = title or fallback_title
+                hook_text = hook_text or fallback_hook
+
+            normalized.append(
+                {
+                    "start": round(start, 2),
+                    "end": round(end, 2),
+                    "transcript_score": 1.0,
+                    "laughter_score": 0,
+                    "sentiment_score": 0,
+                    "scene_score": 0,
+                    "keywords": ["ai_highlight"],
+                    "text": text,
+                    "title": title,
+                    "hook_text": hook_text,
+                    "reasoning": reasoning or "AI-selected highlight",
+                    "virality_score": max(0.7, 1.0 - (idx - 1) * 0.03),
+                }
+            )
+        except Exception:
+            continue
+
+    normalized = filter_by_duration(normalized, min_duration, max_duration)
+    normalized = rank_and_select(normalized, num_clips)
+    return normalized
+
+
+def find_highlights_with_ai(
+    transcript_path: str,
+    num_clips: int,
+    min_duration: float,
+    max_duration: float,
+    provider: str,
+    ai_model: str,
+    openai_api_key: str,
+    gemini_api_key: str,
+) -> list:
+    transcript = parse_srt(transcript_path)
+    if not transcript:
+        return []
+
+    transcript_lines = _build_ai_transcript_lines(transcript)
+    prompt = f"""
+Kamu adalah editor short-form video. Pilih {num_clips} highlight terbaik dari transcript.
+
+Aturan wajib:
+- Durasi setiap highlight harus {int(min_duration)}-{int(max_duration)} detik.
+- Output harus JSON array valid.
+- Setiap item wajib punya: start_time, end_time, title, hook_text, reason.
+- hook_text maksimal 15 kata, bahasa Indonesia santai, tanpa emoji.
+- title harus catchy dan relevan dengan isi clip.
+
+Format output:
+[
+  {{
+    "start_time": 12.3,
+    "end_time": 66.8,
+    "title": "...",
+    "hook_text": "...",
+    "reason": "..."
+  }}
+]
+
+Transcript:
+{transcript_lines}
+"""
+
+    provider = (provider or "").lower()
+    if provider == "openai" and openai_api_key:
+        items = _call_openai_highlights(prompt, openai_api_key, ai_model or "gpt-4o-mini")
+    elif provider == "gemini" and gemini_api_key:
+        items = _call_gemini_highlights(
+            prompt, gemini_api_key, ai_model or "gemini-flash-lite-latest"
+        )
+    else:
+        return []
+
+    return _normalize_ai_highlights(items, transcript, num_clips, min_duration, max_duration)
+
+
 def find_highlights(
     video_path: str,
     transcript_path: str = None,
@@ -65,6 +335,10 @@ def find_highlights(
     min_duration: float = 40,
     max_duration: float = 120,
     weights: dict = None,
+    highlight_model: str = "heuristic",
+    highlight_ai_model: str = None,
+    openai_api_key: str = None,
+    gemini_api_key: str = None,
 ) -> dict:
     """Find viral-worthy highlight segments."""
 
@@ -75,6 +349,41 @@ def find_highlights(
         weights = DEFAULT_WEIGHTS
 
     try:
+        if highlight_model in ["openai", "gemini", "auto"] and transcript_path:
+            provider = highlight_model
+            if provider == "auto":
+                provider = "gemini" if gemini_api_key else "openai"
+
+            ai_highlights = find_highlights_with_ai(
+                transcript_path=transcript_path,
+                num_clips=num_clips,
+                min_duration=min_duration,
+                max_duration=max_duration,
+                provider=provider,
+                ai_model=highlight_ai_model,
+                openai_api_key=openai_api_key,
+                gemini_api_key=gemini_api_key,
+            )
+
+            if ai_highlights:
+                highlights = format_highlights(ai_highlights)
+                return {
+                    "success": True,
+                    "video_path": video_path,
+                    "total_segments_analyzed": len(ai_highlights),
+                    "num_clips_requested": num_clips,
+                    "highlights": highlights,
+                    "analysis_summary": {
+                        "avg_virality_score": sum(s.get("virality_score", 0) for s in highlights)
+                        / len(highlights)
+                        if highlights
+                        else 0,
+                        "total_highlight_duration": sum(h["duration"] for h in highlights),
+                        "best_segment_start": highlights[0]["start_time"] if highlights else 0,
+                        "method": f"ai:{provider}",
+                    },
+                }
+
         segments = []
 
         if transcript_path:
@@ -419,6 +728,11 @@ def format_highlights(segments: list) -> list:
             else "low"
         )
 
+        title = _clean_text(seg.get("title"))
+        hook_text = _clean_text(seg.get("hook_text"))
+        if not title or not hook_text:
+            title, hook_text = _generate_title_and_hook(seg.get("text", ""), i)
+
         highlights.append(
             {
                 "rank": i,
@@ -426,6 +740,8 @@ def format_highlights(segments: list) -> list:
                 "end_time": round(seg["end"], 2),
                 "duration": round(duration, 2),
                 "virality_score": seg["virality_score"],
+                "title": title,
+                "hook_text": hook_text,
                 "scores": {
                     "transcript": round(seg.get("transcript_score", 0), 2),
                     "laughter": round(seg.get("laughter_score", 0), 2),
@@ -433,7 +749,7 @@ def format_highlights(segments: list) -> list:
                     "scenes": round(seg.get("scene_score", 0), 2),
                 },
                 "text": seg.get("text", "")[:200],
-                "reasoning": f"Contains {reasoning}",
+                "reasoning": _clean_text(seg.get("reasoning")) or f"Contains {reasoning}",
                 "suggested_clip_start": round(max(0, seg["start"] - 2), 2),
                 "suggested_clip_end": round(seg["end"] + 2, 2),
                 "confidence": confidence,
@@ -453,6 +769,12 @@ def main():
     parser.add_argument("--num-clips", type=int, default=5)
     parser.add_argument("--min-duration", type=float, default=40)
     parser.add_argument("--max-duration", type=float, default=120)
+    parser.add_argument(
+        "--highlight-model", choices=["heuristic", "auto", "openai", "gemini"], default="heuristic"
+    )
+    parser.add_argument("--highlight-ai-model", default=None)
+    parser.add_argument("--openai-api-key", default=os.getenv("OPENAI_API_KEY"))
+    parser.add_argument("--gemini-api-key", default=os.getenv("GEMINI_API_KEY"))
     parser.add_argument("-o", "--output", help="Output JSON path")
 
     args = parser.parse_args()
@@ -466,6 +788,10 @@ def main():
         num_clips=args.num_clips,
         min_duration=args.min_duration,
         max_duration=args.max_duration,
+        highlight_model=args.highlight_model,
+        highlight_ai_model=args.highlight_ai_model,
+        openai_api_key=args.openai_api_key,
+        gemini_api_key=args.gemini_api_key,
     )
 
     print(json.dumps(result, indent=2, ensure_ascii=False))

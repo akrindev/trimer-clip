@@ -27,6 +27,8 @@ Trimer-Clip is a comprehensive suite of Agent Skills that enable AI agents to au
 
 **Key Features**:
 - **Whisper** (local): tiny, base, small, medium, large-v3 models
+- **OpenAI Whisper API** (cloud): word-level timestamps
+- **Google Speech-to-Text** (cloud): word-level timestamps + diarization
 - **Gemini API** (cloud): gemini-flash-lite-latest
 - Speaker diarization (Gemini)
 - Emotion detection (Gemini)
@@ -114,7 +116,7 @@ Trimer-Clip is a comprehensive suite of Agent Skills that enable AI agents to au
 **Purpose**: Add burned-in subtitles
 
 **Key Features**:
-- SRT/VTT support
+- SRT/VTT/ASS support
 - Platform-specific styles (TikTok, Shorts, Reels)
 - Customizable fonts and colors
 - Position control
@@ -131,7 +133,7 @@ Trimer-Clip is a comprehensive suite of Agent Skills that enable AI agents to au
 - Detects highlights (combined analysis)
 - Trims segments
 - Resizes to portrait
-- Adds subtitles
+- Adds subtitles (segment or word-level karaoke)
 - Exports clips
 
 **Scripts**:
@@ -217,6 +219,12 @@ python skills/subtitle-overlay/scripts/add_subtitles.py clip_portrait.mp4 --subt
 # Gemini API (for transcription and analysis)
 export GEMINI_API_KEY="your-api-key"
 
+# OpenAI Whisper API (word-level captions)
+export OPENAI_API_KEY="your-api-key"
+
+# Google Speech-to-Text
+export GOOGLE_APPLICATION_CREDENTIALS="/path/to/service-account.json"
+
 # Optional: Vertex AI settings
 export GOOGLE_PROJECT_ID="your-project-id"
 export GOOGLE_LOCATION="us-central1"
@@ -227,6 +235,8 @@ export GOOGLE_LOCATION="us-central1"
 **Transcription:**
 - `auto` - Automatically selects best model
 - `whisper` - Use local Whisper (privacy, free)
+- `openai` - Use OpenAI Whisper API (word timestamps)
+- `google` - Use Google Speech-to-Text (word timestamps)
 - `gemini` - Use Gemini API (quality, features)
 
 **Whisper Models:**
@@ -235,6 +245,9 @@ export GOOGLE_LOCATION="us-central1"
 - `small` - Balanced
 - `medium` - Good accuracy
 - `large-v3` - Best accuracy, slowest
+
+**Local-first testing:**
+- Use `whisper` + `tiny` for the fastest local validation run.
 
 ## Output Specifications
 
@@ -245,6 +258,16 @@ export GOOGLE_LOCATION="us-central1"
 - **Resolution**: 1080x1920 (9:16 portrait)
 - **Frame Rate**: 30fps
 - **Bitrate**: 4000k
+
+### Output Structure
+
+```
+shorts/
+  <video_slug>_<YYYYMMDD-HHMMSS>/
+    clip_001/
+      master.mp4
+      data.json
+```
 
 ### Clip Duration
 - **TikTok**: 15-60 seconds

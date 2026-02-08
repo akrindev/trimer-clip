@@ -4,13 +4,51 @@ import os
 import json
 import argparse
 import time
+import re
+import types
+from datetime import datetime
+from urllib.parse import urlparse, parse_qs
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent.parent.parent.parent / "scripts"))
 
 from shared.ffmpeg_wrapper import FFmpegWrapper
+from shared.subtitle_utils import build_karaoke_ass, load_word_timestamps, slice_words
+from shared.video_utils import create_srt, format_srt_time, sanitize_filename
 
-sys.path.insert(0, str(Path(__file__).parent.parent.parent / "skills"))
+SKILLS_ROOT = Path(__file__).parent.parent.parent
+sys.path.insert(0, str(SKILLS_ROOT))
+
+
+def _alias_skill_package(name: str, directory: Path) -> None:
+    if name in sys.modules:
+        return
+    module = types.ModuleType(name)
+    module.__path__ = [str(directory)]
+    sys.modules[name] = module
+
+
+def _register_skill_aliases() -> None:
+    aliases = {
+        "youtube_downloader": "youtube-downloader",
+        "video_transcriber": "video-transcriber",
+        "speaker_diarization": "speaker-diarization",
+        "scene_detector": "scene-detector",
+        "laughter_detector": "laughter-detector",
+        "sentiment_analyzer": "sentiment-analyzer",
+        "highlight_scanner": "highlight-scanner",
+        "video_trimmer": "video-trimmer",
+        "portrait_resizer": "portrait-resizer",
+        "subtitle_overlay": "subtitle-overlay",
+        "autocut_shorts": "autocut-shorts",
+    }
+    for alias, folder in aliases.items():
+        target = SKILLS_ROOT / folder
+        if target.exists():
+            _alias_skill_package(alias, target)
+
+
+_register_skill_aliases()
 
 
 def select_diarization_model(
@@ -71,25 +109,205 @@ def select_diarization_model(
     return "gemini"
 
 
+def _slugify(value: str) -> str:
+    value = value.lower()
+    value = value.encode("ascii", "ignore").decode("ascii")
+    value = re.sub(r"[^a-z0-9]+", "_", value)
+    value = re.sub(r"_+", "_", value).strip("_")
+    return value or "video"
+
+
+def _extract_youtube_id(url: str | None) -> str | None:
+    if not url:
+        return None
+    try:
+        parsed = urlparse(url)
+    except Exception:
+        return None
+
+    host = parsed.netloc.lower()
+    path = parsed.path
+
+    if "youtu.be" in host:
+        video_id = path.strip("/")
+        return video_id or None
+
+    if "youtube.com" in host:
+        if path == "/watch":
+            query = parse_qs(parsed.query)
+            return query.get("v", [None])[0]
+
+        for prefix in ["/shorts/", "/embed/", "/v/"]:
+            if path.startswith(prefix):
+                parts = path.split("/")
+                if len(parts) > 2:
+                    return parts[2] or None
+
+    return None
+
+
+def _build_run_output_dir(base_dir: str, video_name: str) -> Path:
+    timestamp = datetime.now().strftime("%Y%m%d-%H%M%S")
+    safe_name = sanitize_filename(video_name)
+    slug = _slugify(safe_name)
+    run_dir = Path(base_dir) / f"{slug}_{timestamp}"
+    run_dir.mkdir(parents=True, exist_ok=True)
+    return run_dir
+
+
+def _clean_text(value) -> str:
+    if not isinstance(value, str):
+        return ""
+    return " ".join(value.strip().split())
+
+
+def _build_highlight_copy(
+    source_title: str, highlight: dict, clip_start: float, clip_end: float
+) -> tuple:
+    base_title = _clean_text(source_title) or "Video Highlight"
+    hook_text = _clean_text(highlight.get("hook_text"))
+    transcript_text = _clean_text(highlight.get("text"))
+
+    core_text = hook_text or transcript_text
+    if not core_text:
+        core_text = "Bagian paling menarik dari pembahasan video ini."
+
+    provided_title = _clean_text(highlight.get("title"))
+    if provided_title:
+        highlight_title = provided_title
+    else:
+        sentence = core_text.split(". ")[0].strip(" .")
+        if len(sentence) > 90:
+            sentence = sentence[:87].rstrip() + "..."
+
+        rank = highlight.get("rank")
+        rank_prefix = f"[Clip {rank}] " if rank else ""
+        highlight_title = f"{rank_prefix}{sentence}" if sentence else f"{rank_prefix}{base_title}"
+
+    time_range = f"{format_srt_time(clip_start)} - {format_srt_time(clip_end)}"
+    highlight_description = (
+        f"Highlight dari: {base_title}. Rentang klip: {time_range}. Cuplikan: {core_text}"
+    )
+
+    return highlight_title, highlight_description
+
+
+def _write_clip_metadata(
+    clip_dir: Path,
+    highlight: dict,
+    clip_start: float,
+    clip_end: float,
+    output_path: str,
+    subtitle_mode: str,
+    context: dict,
+) -> str:
+    source = context.get("source", {}) if isinstance(context, dict) else {}
+    source_info = source.get("info", {}) if isinstance(source, dict) else {}
+
+    youtube_url = source_info.get("url")
+    if not isinstance(youtube_url, str):
+        youtube_url = None
+    youtube_video_id = source_info.get("video_id")
+    if not youtube_video_id:
+        youtube_video_id = _extract_youtube_id(youtube_url)
+    youtube_title = source_info.get("title")
+    youtube_description = source_info.get("description")
+    youtube_tags = source_info.get("tags") if isinstance(source_info.get("tags"), list) else []
+
+    source_title = source_info.get("title") or Path(source.get("path", output_path)).stem
+    hook_text = _clean_text(highlight.get("hook_text")) or None
+    highlight_title, highlight_description = _build_highlight_copy(
+        source_title, highlight, clip_start, clip_end
+    )
+
+    metadata = {
+        "title": highlight_title,
+        "description": highlight_description,
+        "source_title": source_title,
+        "hook_text": hook_text,
+        "start_time": format_srt_time(clip_start),
+        "end_time": format_srt_time(clip_end),
+        "duration_seconds": round(clip_end - clip_start, 2),
+        "has_hook": bool(hook_text),
+        "has_captions": subtitle_mode in ["auto", "word", "segment"],
+        "subtitle_mode": subtitle_mode,
+        "youtube_title": youtube_title or source_title,
+        "youtube_description": youtube_description or highlight_description,
+        "youtube_tags": youtube_tags,
+        "youtube_url": youtube_url,
+        "youtube_video_id": youtube_video_id,
+        "rank": highlight.get("rank"),
+        "virality_score": highlight.get("virality_score"),
+        "text": highlight.get("text"),
+        "reasoning": highlight.get("reasoning"),
+        "confidence": highlight.get("confidence"),
+        "scores": highlight.get("scores"),
+        "timestamps": {
+            "start": highlight.get("start_time"),
+            "end": highlight.get("end_time"),
+            "suggested_start": clip_start,
+            "suggested_end": clip_end,
+        },
+        "clip_filename": Path(output_path).name,
+        "output_path": output_path,
+        "platform": context.get("platform"),
+        "source": {
+            "type": source.get("type"),
+            "path": source.get("path"),
+            "url": source_info.get("url"),
+            "title": source_info.get("title"),
+            "uploader": source_info.get("uploader"),
+            "duration": source_info.get("duration"),
+            "upload_date": source_info.get("upload_date"),
+        },
+        "transcription": {
+            "model": context.get("transcription_model"),
+            "whisper_model": context.get("whisper_model")
+            if context.get("transcription_model") == "whisper"
+            else None,
+            "openai_model": context.get("openai_model")
+            if context.get("transcription_model") == "openai"
+            else None,
+            "google_model": context.get("google_model")
+            if context.get("transcription_model") == "google"
+            else None,
+        },
+    }
+
+    metadata_path = clip_dir / "data.json"
+    with metadata_path.open("w", encoding="utf-8") as f:
+        json.dump(metadata, f, indent=2, ensure_ascii=False)
+
+    return str(metadata_path)
+
+
 def autocut(
     source: str,
     source_type: str = "auto",
     num_clips: int = 5,
-    min_duration: float = 15,
-    max_duration: float = 60,
+    min_duration: float = 40,
+    max_duration: float = 120,
     platform: str = "tiktok",
     output_dir: str = "./shorts/",
     transcription_model: str = "auto",
+    whisper_model: str = "large-v3",
+    openai_model: str = "whisper-1",
+    google_model: str = None,
     diarization_model: str = "auto",
     huggingface_token: str = None,
     focus_speaker: str = None,
     gemini_api_key: str = None,
+    openai_api_key: str = None,
+    highlight_model: str = "heuristic",
+    highlight_ai_model: str = None,
     skip_transcribe: bool = False,
     skip_diarization: bool = False,
     skip_scenes: bool = False,
     skip_laughter: bool = False,
     skip_sentiment: bool = False,
     transcript_path: str = None,
+    word_timestamps_path: str = None,
+    subtitle_mode: str = "auto",
     style: str = None,
     user_request: str = "",
 ) -> dict:
@@ -122,23 +340,83 @@ def autocut(
 
         timings["download"] = time.time() - step_start
 
+        video_name = video_info.get("title") if isinstance(video_info, dict) else None
+        if not video_name:
+            video_name = Path(video_path).stem
+
+        run_output_dir = _build_run_output_dir(output_dir, video_name)
+        output_dir = str(run_output_dir)
+
         # Intelligent diarization model selection
         selected_diarization = select_diarization_model(video_path, user_request, diarization_model)
 
         step_start = time.time()
 
+        subtitle_mode = (subtitle_mode or "auto").lower()
+        needs_word_timestamps = subtitle_mode in ["auto", "word"]
+        word_timestamps = None
+        word_timestamps_file = word_timestamps_path
+        transcript_file = None
+
+        effective_transcription_model = transcription_model
+        if needs_word_timestamps and transcription_model in ["auto", "gemini"]:
+            effective_transcription_model = "whisper"
+
         if not skip_transcribe:
             if transcript_path and Path(transcript_path).exists():
-                transcript_file = transcript_path
+                if transcript_path.endswith(".json"):
+                    word_timestamps_file = transcript_path
+                else:
+                    transcript_file = transcript_path
             else:
-                transcript_file = transcribe_video(
-                    video_path, model=transcription_model, gemini_api_key=gemini_api_key
-                )
+                if needs_word_timestamps:
+                    word_timestamps_file = transcribe_video(
+                        video_path,
+                        model=effective_transcription_model,
+                        whisper_model=whisper_model,
+                        openai_model=openai_model,
+                        google_model=google_model,
+                        output_format="json",
+                        gemini_api_key=gemini_api_key,
+                    )
+                else:
+                    transcript_file = transcribe_video(
+                        video_path,
+                        model=effective_transcription_model,
+                        whisper_model=whisper_model,
+                        openai_model=openai_model,
+                        google_model=google_model,
+                        output_format="srt",
+                        gemini_api_key=gemini_api_key,
+                    )
 
-            if not transcript_file:
-                return {"success": False, "error": "Transcription failed"}
-        else:
-            transcript_file = transcript_path
+        if word_timestamps_file and Path(word_timestamps_file).exists():
+            transcript_file = transcript_file or _ensure_srt_from_word_json(
+                word_timestamps_file, output_path=f"{video_path}.srt"
+            )
+            word_timestamps = load_word_timestamps(word_timestamps_file)
+
+        if skip_transcribe:
+            if transcript_path and Path(transcript_path).exists():
+                if transcript_path.endswith(".json") and not word_timestamps:
+                    word_timestamps_file = transcript_path
+                    transcript_file = _ensure_srt_from_word_json(word_timestamps_file)
+                    word_timestamps = load_word_timestamps(word_timestamps_file)
+                else:
+                    transcript_file = transcript_path
+
+            if word_timestamps_path and Path(word_timestamps_path).exists() and not word_timestamps:
+                word_timestamps_file = word_timestamps_path
+                transcript_file = transcript_file or _ensure_srt_from_word_json(
+                    word_timestamps_file
+                )
+                word_timestamps = load_word_timestamps(word_timestamps_file)
+
+        if not transcript_file:
+            return {"success": False, "error": "Transcript file not found"}
+
+        if needs_word_timestamps and not word_timestamps:
+            subtitle_mode = "segment"
 
         timings["transcription"] = time.time() - step_start
 
@@ -184,6 +462,10 @@ def autocut(
             min_duration,
             max_duration,
             focus_speaker=focus_speaker,
+            highlight_model=highlight_model,
+            highlight_ai_model=highlight_ai_model,
+            openai_api_key=openai_api_key,
+            gemini_api_key=gemini_api_key,
         )
 
         timings["analysis"] = time.time() - step_start
@@ -194,6 +476,17 @@ def autocut(
         # Process clips
         step_start = time.time()
 
+        metadata_context = {
+            "source": {"type": source_type, "path": video_path, "info": video_info},
+            "platform": platform,
+            "style": style or platform,
+            "subtitle_mode": subtitle_mode,
+            "transcription_model": effective_transcription_model,
+            "whisper_model": whisper_model,
+            "openai_model": openai_model,
+            "google_model": google_model,
+        }
+
         clips = process_clips(
             video_path,
             highlights,
@@ -202,6 +495,9 @@ def autocut(
             style or platform,
             transcript_file,
             diarization_file,
+            word_timestamps=word_timestamps,
+            subtitle_mode=subtitle_mode,
+            metadata_context=metadata_context,
         )
 
         timings["processing"] = time.time() - step_start
@@ -212,8 +508,13 @@ def autocut(
             "success": True,
             "source": {"type": source_type, "path": video_path, "info": video_info},
             "processing": {
-                "transcription_model": transcription_model,
+                "transcription_model": effective_transcription_model,
+                "whisper_model": whisper_model
+                if effective_transcription_model == "whisper"
+                else None,
+                "openai_model": openai_model if effective_transcription_model == "openai" else None,
                 "diarization_model": selected_diarization,
+                "subtitle_mode": subtitle_mode,
                 "platform": platform,
                 "num_clips_requested": num_clips,
                 "num_clips_generated": len(clips),
@@ -241,7 +542,14 @@ def download_video(url: str, output_dir: str) -> tuple:
         result = yt_download(url, output_path=f"{output_dir}/%(title)s.%(ext)s")
 
         if result["success"]:
-            return result.get("video_path"), result
+            video_path = result.get("video_path")
+            if not video_path:
+                candidates = list(Path(output_dir).glob("*.mp4"))
+                if candidates:
+                    latest = max(candidates, key=lambda p: p.stat().st_mtime)
+                    video_path = str(latest)
+                    result["video_path"] = video_path
+            return video_path, result
         return None, {}
 
     except Exception as e:
@@ -249,13 +557,28 @@ def download_video(url: str, output_dir: str) -> tuple:
         return None, {}
 
 
-def transcribe_video(video_path: str, model: str, gemini_api_key: str = None) -> str:
+def transcribe_video(
+    video_path: str,
+    model: str,
+    whisper_model: str = "medium",
+    openai_model: str = "whisper-1",
+    google_model: str = None,
+    output_format: str = "srt",
+    gemini_api_key: str = None,
+) -> str:
     """Transcribe video audio."""
     try:
         from video_transcriber.scripts.transcribe import transcribe_video
 
+        output_path = f"{video_path}.{output_format}"
         result = transcribe_video(
-            video_path, model=model, output_path=f"{video_path}.srt", format="srt"
+            video_path,
+            model=model,
+            whisper_model=whisper_model,
+            openai_model=openai_model,
+            google_model=google_model,
+            output_path=output_path,
+            format=output_format,
         )
 
         if result["success"]:
@@ -265,6 +588,51 @@ def transcribe_video(video_path: str, model: str, gemini_api_key: str = None) ->
     except Exception as e:
         print(f"Transcription error: {e}")
         return None
+
+
+def _load_segments_from_json(json_path: str) -> list:
+    try:
+        with open(json_path, "r", encoding="utf-8") as f:
+            data = json.load(f)
+    except Exception:
+        return []
+
+    if isinstance(data, dict):
+        data = data.get("segments", [])
+
+    if not isinstance(data, list):
+        return []
+
+    segments = []
+    for item in data:
+        if not isinstance(item, dict):
+            continue
+        if "start" in item and "end" in item and "text" in item:
+            segments.append(item)
+    return segments
+
+
+def _ensure_srt_from_word_json(json_path: str, output_path: str = None) -> str:
+    segments = _load_segments_from_json(json_path)
+    if not segments:
+        return None
+
+    if output_path is None:
+        output_path = str(Path(json_path).with_suffix(".srt"))
+
+    subtitles = []
+    for idx, segment in enumerate(segments, 1):
+        subtitles.append(
+            {
+                "index": idx,
+                "start": float(segment.get("start", 0)),
+                "end": float(segment.get("end", 0)),
+                "text": str(segment.get("text", "")).strip(),
+            }
+        )
+
+    create_srt(subtitles, output_path)
+    return output_path
 
 
 def diarize_video(
@@ -375,6 +743,10 @@ def find_highlights(
     min_duration: float,
     max_duration: float,
     focus_speaker: str = None,
+    highlight_model: str = "heuristic",
+    highlight_ai_model: str = None,
+    openai_api_key: str = None,
+    gemini_api_key: str = None,
 ) -> list:
     """Find highlight segments with speaker context."""
     try:
@@ -389,6 +761,10 @@ def find_highlights(
             num_clips=num_clips,
             min_duration=min_duration,
             max_duration=max_duration,
+            highlight_model=highlight_model,
+            highlight_ai_model=highlight_ai_model,
+            openai_api_key=openai_api_key,
+            gemini_api_key=gemini_api_key,
         )
 
         if result["success"]:
@@ -450,9 +826,15 @@ def process_clips(
     style: str,
     subtitle_path: str,
     diarization_path: str = None,
+    word_timestamps: list = None,
+    subtitle_mode: str = "auto",
+    metadata_context: dict = None,
 ) -> list:
     """Process clips through trim, resize, and subtitle."""
     clips = []
+
+    use_word_subtitles = subtitle_mode in ["auto", "word"] and word_timestamps
+    context = metadata_context or {}
 
     try:
         from video_trimmer.scripts.trim import trim_video
@@ -460,21 +842,26 @@ def process_clips(
         from subtitle_overlay.scripts.add_subtitles import add_subtitles
 
         for i, highlight in enumerate(highlights):
-            base_name = Path(video_path).stem
+            clip_id = f"clip_{i + 1:03d}"
+            clip_dir = Path(output_dir) / clip_id
+            clip_dir.mkdir(parents=True, exist_ok=True)
 
-            trimmed_path = f"{output_dir}/{base_name}_trimmed_{i + 1:03d}.mp4"
+            clip_start = float(highlight["suggested_clip_start"])
+            clip_end = float(highlight["suggested_clip_end"])
+
+            trimmed_path = str(clip_dir / "trimmed.mp4")
             trim_result = trim_video(
                 video_path,
-                str(highlight["suggested_clip_start"]),
-                str(highlight["suggested_clip_end"]),
+                str(clip_start),
+                str(clip_end),
                 trimmed_path,
-                reencode=False,
+                reencode=True,
             )
 
             if not trim_result["success"]:
                 continue
 
-            portrait_path = f"{output_dir}/{base_name}_portrait_{i + 1:03d}.mp4"
+            portrait_path = str(clip_dir / "portrait.mp4")
             resize_result = resize_to_portrait(
                 trimmed_path, output_path=portrait_path, mode="smart"
             )
@@ -482,10 +869,47 @@ def process_clips(
             if not resize_result["success"]:
                 continue
 
-            final_path = f"{output_dir}/{base_name}_{platform}_{i + 1:03d}.mp4"
-            subtitle_result = add_subtitles(portrait_path, subtitle_path, final_path, style=style)
+            final_path = str(clip_dir / "master.mp4")
+            subtitle_source = subtitle_path
+            force_style = True
+            ass_path = None
+
+            if use_word_subtitles:
+                clip_words = slice_words(word_timestamps, clip_start, clip_end)
+                if clip_words:
+                    output_resolution = resize_result.get("output_resolution", {})
+                    video_width = output_resolution.get("width", 1080)
+                    video_height = output_resolution.get("height", 1920)
+                    ass_path = str(clip_dir / "captions.ass")
+                    ass_file = build_karaoke_ass(
+                        clip_words,
+                        ass_path,
+                        video_width=video_width,
+                        video_height=video_height,
+                        style=style,
+                    )
+                    if ass_file:
+                        subtitle_source = ass_file
+                        force_style = False
+
+            subtitle_result = add_subtitles(
+                portrait_path,
+                subtitle_source,
+                final_path,
+                style=style,
+                force_style=force_style,
+            )
 
             if subtitle_result["success"]:
+                metadata_path = _write_clip_metadata(
+                    clip_dir,
+                    highlight,
+                    clip_start,
+                    clip_end,
+                    final_path,
+                    subtitle_mode,
+                    context,
+                )
                 clips.append(
                     {
                         "rank": highlight["rank"],
@@ -495,6 +919,8 @@ def process_clips(
                         "duration": highlight["duration"],
                         "virality_score": highlight["virality_score"],
                         "output_path": final_path,
+                        "clip_dir": str(clip_dir),
+                        "metadata_path": metadata_path,
                     }
                 )
 
@@ -502,6 +928,8 @@ def process_clips(
                 Path(trimmed_path).unlink()
             if Path(portrait_path).exists():
                 Path(portrait_path).unlink()
+            if ass_path and Path(ass_path).exists():
+                Path(ass_path).unlink()
 
         return clips
 
@@ -515,27 +943,43 @@ def main():
     parser.add_argument("source", help="Video file path or YouTube URL")
     parser.add_argument("--source-type", choices=["auto", "file", "youtube"], default="auto")
     parser.add_argument("--num-clips", type=int, default=5)
-    parser.add_argument("--min-duration", type=float, default=15)
-    parser.add_argument("--max-duration", type=float, default=60)
+    parser.add_argument("--min-duration", type=float, default=40)
+    parser.add_argument("--max-duration", type=float, default=120)
     parser.add_argument(
         "--platform", choices=["tiktok", "shorts", "reels", "facebook"], default="tiktok"
     )
     parser.add_argument("--output-dir", default="./shorts/")
     parser.add_argument(
-        "--transcription-model", choices=["auto", "whisper", "gemini"], default="auto"
+        "--transcription-model",
+        choices=["auto", "whisper", "gemini", "openai", "google"],
+        default="auto",
     )
+    parser.add_argument(
+        "--whisper-model",
+        choices=["tiny", "base", "small", "medium", "large-v3"],
+        default="large-v3",
+    )
+    parser.add_argument("--openai-model", default="whisper-1")
+    parser.add_argument("--google-model", default=None)
     parser.add_argument(
         "--diarization-model", choices=["auto", "pyannote", "gemini", "none"], default="auto"
     )
     parser.add_argument("--huggingface-token", default=os.getenv("HUGGINGFACE_TOKEN"))
     parser.add_argument("--focus-speaker", help="Focus on specific speaker (SPEAKER_00, etc.)")
     parser.add_argument("--gemini-api-key", default=os.getenv("GEMINI_API_KEY"))
+    parser.add_argument("--openai-api-key", default=os.getenv("OPENAI_API_KEY"))
+    parser.add_argument(
+        "--highlight-model", choices=["heuristic", "auto", "openai", "gemini"], default="heuristic"
+    )
+    parser.add_argument("--highlight-ai-model", default=None)
     parser.add_argument("--skip-transcribe", action="store_true")
     parser.add_argument("--skip-diarization", action="store_true")
     parser.add_argument("--skip-scenes", action="store_true")
     parser.add_argument("--skip-laughter", action="store_true")
     parser.add_argument("--skip-sentiment", action="store_true")
     parser.add_argument("--transcript-path")
+    parser.add_argument("--word-timestamps-path")
+    parser.add_argument("--subtitle-mode", choices=["auto", "word", "segment"], default="auto")
     parser.add_argument("--style", choices=["tiktok", "shorts", "reels", "default"])
 
     args = parser.parse_args()
@@ -549,16 +993,24 @@ def main():
         platform=args.platform,
         output_dir=args.output_dir,
         transcription_model=args.transcription_model,
+        whisper_model=args.whisper_model,
+        openai_model=args.openai_model,
+        google_model=args.google_model,
         diarization_model=args.diarization_model,
         huggingface_token=args.huggingface_token,
         focus_speaker=args.focus_speaker,
         gemini_api_key=args.gemini_api_key,
+        openai_api_key=args.openai_api_key,
+        highlight_model=args.highlight_model,
+        highlight_ai_model=args.highlight_ai_model,
         skip_transcribe=args.skip_transcribe,
         skip_diarization=args.skip_diarization,
         skip_scenes=args.skip_scenes,
         skip_laughter=args.skip_laughter,
         skip_sentiment=args.skip_sentiment,
         transcript_path=args.transcript_path,
+        word_timestamps_path=args.word_timestamps_path,
+        subtitle_mode=args.subtitle_mode,
         style=args.style,
         user_request=" ".join(sys.argv),  # Capture full command for context
     )

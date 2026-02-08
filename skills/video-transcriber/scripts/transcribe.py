@@ -10,7 +10,8 @@ sys.path.insert(0, str(Path(__file__).parent.parent.parent.parent / "scripts"))
 from shared.ffmpeg_wrapper import FFmpegWrapper
 from shared.audio_utils import extract_audio_from_video
 from models.whisper_transcriber import WhisperTranscriber
-from models.gemini_transcriber import GeminiTranscriber
+from models.openai_transcriber import OpenAIWhisperTranscriber
+from models.google_stt_transcriber import GoogleSpeechTranscriber
 import tempfile
 
 
@@ -19,6 +20,8 @@ def transcribe_video(
     model: str = "auto",
     whisper_model: str = "medium",
     use_faster: bool = True,
+    openai_model: str = "whisper-1",
+    google_model: str = None,
     output_path: str = None,
     format: str = "srt",
     language: str = None,
@@ -42,7 +45,12 @@ def transcribe_video(
         if model == "auto":
             model = _select_model(video_path, speaker_diarization, emotion_detection, language)
 
+        model_used = model
+        fallback_error = None
+
         if model == "gemini":
+            from models.gemini_transcriber import GeminiTranscriber
+
             api_key = os.getenv("GEMINI_API_KEY")
             if not api_key:
                 return {"success": False, "error": "GEMINI_API_KEY environment variable not set"}
@@ -58,6 +66,49 @@ def transcribe_video(
             )
 
             output_data = _format_gemini_result(result, format)
+
+        elif model == "openai":
+            try:
+                transcriber = OpenAIWhisperTranscriber(model=openai_model)
+                segments = transcriber.transcribe(
+                    temp_audio_path,
+                    word_timestamps=True,
+                    return_format="segments",
+                    language=language,
+                )
+                output_data = _format_whisper_result(segments, format)
+                model_used = "openai"
+            except Exception as e:
+                fallback_error = str(e)
+                try:
+                    transcriber = GoogleSpeechTranscriber(language=language, model=google_model)
+                    segments = transcriber.transcribe(
+                        temp_audio_path,
+                        word_timestamps=True,
+                        diarization=speaker_diarization,
+                        return_format="segments",
+                        language=language,
+                    )
+                    output_data = _format_whisper_result(segments, format)
+                    model_used = "google"
+                except Exception as fallback_exc:
+                    return {
+                        "success": False,
+                        "error": f"OpenAI transcription failed: {fallback_error}",
+                        "fallback_error": str(fallback_exc),
+                        "video_path": video_path,
+                    }
+
+        elif model == "google":
+            transcriber = GoogleSpeechTranscriber(language=language, model=google_model)
+            segments = transcriber.transcribe(
+                temp_audio_path,
+                word_timestamps=True,
+                diarization=speaker_diarization,
+                return_format="segments",
+                language=language,
+            )
+            output_data = _format_whisper_result(segments, format)
 
         else:
             transcriber = WhisperTranscriber(
@@ -81,7 +132,17 @@ def transcribe_video(
             else:
                 f.write(output_data)
 
-        return {"success": True, "output_path": output_path, "format": format, "model_used": model}
+        result = {
+            "success": True,
+            "output_path": output_path,
+            "format": format,
+            "model_used": model_used,
+        }
+
+        if fallback_error and model_used == "google":
+            result["fallback_error"] = fallback_error
+
+        return result
 
     except Exception as e:
         return {"success": False, "error": str(e), "video_path": video_path}
@@ -171,10 +232,17 @@ def _format_time_vtt(seconds: float) -> str:
 def main():
     parser = argparse.ArgumentParser(description="Transcribe audio from video")
     parser.add_argument("video_path", help="Path to video file")
-    parser.add_argument("-m", "--model", choices=["auto", "whisper", "gemini"], default="auto")
+    parser.add_argument(
+        "-m",
+        "--model",
+        choices=["auto", "whisper", "gemini", "openai", "google"],
+        default="auto",
+    )
     parser.add_argument(
         "--whisper-model", choices=["tiny", "base", "small", "medium", "large-v3"], default="medium"
     )
+    parser.add_argument("--openai-model", default="whisper-1")
+    parser.add_argument("--google-model", default=None)
     parser.add_argument("--use-faster", action="store_true", default=True)
     parser.add_argument("-o", "--output", help="Output file path")
     parser.add_argument("--format", choices=["srt", "vtt", "json"], default="srt")
@@ -190,6 +258,8 @@ def main():
         model=args.model,
         whisper_model=args.whisper_model,
         use_faster=args.use_faster,
+        openai_model=args.openai_model,
+        google_model=args.google_model,
         output_path=args.output,
         format=args.format,
         language=args.language,

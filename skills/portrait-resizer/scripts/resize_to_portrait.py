@@ -91,19 +91,118 @@ def resize_to_portrait(
 def detect_focus_point(video_path: str) -> tuple:
     """Detect focus point using simple heuristics."""
     try:
-        ffmpeg = FFmpegWrapper()
-        width, height = ffmpeg.get_resolution(video_path)
-
-        center_x = width / 2
-        center_y = height / 2
-
-        focus_x = center_x / width
-        focus_y = center_y / height
-
-        return focus_x, focus_y
-
+        import cv2
     except Exception:
         return 0.5, 0.5
+
+    mp = None
+    try:
+        import mediapipe as mp
+    except Exception:
+        mp = None
+
+    cap = cv2.VideoCapture(video_path)
+    if not cap.isOpened():
+        return 0.5, 0.5
+
+    fps = cap.get(cv2.CAP_PROP_FPS)
+    if not fps or fps <= 0:
+        fps = 30
+
+    sample_fps = 2.0
+    frame_interval = max(int(round(fps / sample_fps)), 1)
+    max_frames = 150
+    frame_index = 0
+    processed = 0
+    detections = []
+
+    try:
+        if mp is not None and hasattr(mp, "solutions"):
+            with mp.solutions.face_detection.FaceDetection(
+                model_selection=1, min_detection_confidence=0.5
+            ) as detector:
+                while cap.isOpened() and processed < max_frames:
+                    ret, frame = cap.read()
+                    if not ret:
+                        break
+
+                    if frame_index % frame_interval != 0:
+                        frame_index += 1
+                        continue
+
+                    frame_index += 1
+                    processed += 1
+
+                    rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+                    result = detector.process(rgb)
+                    if not result.detections:
+                        continue
+
+                    best = None
+                    for detection in result.detections:
+                        bbox = detection.location_data.relative_bounding_box
+                        score = detection.score[0] if detection.score else 0.0
+                        area = max(bbox.width, 0.0) * max(bbox.height, 0.0)
+                        weight = area * score
+                        cx = bbox.xmin + bbox.width / 2
+                        cy = bbox.ymin + bbox.height / 2
+                        if not best or weight > best["weight"]:
+                            best = {"cx": cx, "cy": cy, "weight": weight}
+
+                    if best:
+                        detections.append(best)
+        else:
+            cascade_path = cv2.data.haarcascades + "haarcascade_frontalface_default.xml"
+            classifier = cv2.CascadeClassifier(cascade_path)
+            if classifier.empty():
+                return 0.5, 0.5
+
+            while cap.isOpened() and processed < max_frames:
+                ret, frame = cap.read()
+                if not ret:
+                    break
+
+                if frame_index % frame_interval != 0:
+                    frame_index += 1
+                    continue
+
+                frame_index += 1
+                processed += 1
+
+                gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+                faces = classifier.detectMultiScale(
+                    gray, scaleFactor=1.1, minNeighbors=5, minSize=(60, 60)
+                )
+                if len(faces) == 0:
+                    continue
+
+                best = None
+                for x, y, w, h in faces:
+                    area = w * h
+                    cx = (x + w / 2) / frame.shape[1]
+                    cy = (y + h / 2) / frame.shape[0]
+                    if not best or area > best["weight"]:
+                        best = {"cx": cx, "cy": cy, "weight": float(area)}
+
+                if best:
+                    detections.append(best)
+    finally:
+        cap.release()
+
+    if not detections:
+        return 0.5, 0.5
+
+    total_weight = sum(d["weight"] for d in detections)
+    if total_weight > 0:
+        focus_x = sum(d["cx"] * d["weight"] for d in detections) / total_weight
+        focus_y = sum(d["cy"] * d["weight"] for d in detections) / total_weight
+    else:
+        focus_x = sum(d["cx"] for d in detections) / len(detections)
+        focus_y = sum(d["cy"] for d in detections) / len(detections)
+
+    focus_x = min(max(focus_x, 0.0), 1.0)
+    focus_y = min(max(focus_y, 0.0), 1.0)
+    return focus_x, focus_y
 
 
 def batch_resize(input_dir: str, output_dir: str = "./portrait/", **kwargs) -> dict:

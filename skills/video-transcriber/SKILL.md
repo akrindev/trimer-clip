@@ -1,16 +1,16 @@
 ---
 name: video-transcriber
-description: Transcribe audio from videos using Whisper (local) or Gemini API (gemini-flash-lite-latest). Use when you need to convert video/audio to text for further processing, subtitle generation, or content analysis. Supports multiple languages, speaker diarization, and timestamp-accurate transcription. Gemini provides additional features like emotion detection and viral segment analysis.
+description: Transcribe audio from videos using Whisper (local), OpenAI Whisper API, Google Speech-to-Text, or Gemini API (gemini-flash-lite-latest). Use when you need to convert video/audio to text for further processing, subtitle generation, or content analysis. Supports multiple languages, speaker diarization, and timestamp-accurate transcription. Gemini provides additional features like emotion detection and viral segment analysis.
 allowed-tools: Bash(ffmpeg:*) Bash(python:*)
 compatibility: Requires FFmpeg, optional OpenAI/Google Cloud API keys
 metadata:
   version: "1.0"
-  models: "whisper, gemini-flash-lite-latest"
+  models: "whisper, openai-whisper-api, google-stt, gemini-flash-lite-latest"
 ---
 
 # Video Transcriber
 
-This skill enables AI agents to transcribe audio from video files using either Whisper (local processing) or Gemini API (cloud processing with advanced features).
+This skill enables AI agents to transcribe audio from video files using Whisper (local processing), OpenAI Whisper API, Google Speech-to-Text, or Gemini API (cloud processing with advanced features).
 
 ## When to Use
 
@@ -43,6 +43,9 @@ This skill enables AI agents to transcribe audio from video files using either W
 - `medium` - Good accuracy, slower (~769MB)
 - `large-v3` - Highest accuracy, slowest (~1550MB)
 
+**Local-first testing:**
+Use `tiny` when you want the fastest local run for validation.
+
 ### Gemini API (Cloud)
 
 **Pros:**
@@ -60,6 +63,32 @@ This skill enables AI agents to transcribe audio from video files using either W
 - Cost per usage
 - Internet required
 
+### OpenAI Whisper API (Cloud)
+
+**Pros:**
+- High accuracy with word-level timestamps
+- No local GPU/CPU needed
+- Consistent results
+
+**Cons:**
+- Requires API key
+- Cloud upload (privacy consideration)
+- Cost per usage
+- Internet required
+
+### Google Speech-to-Text (Cloud)
+
+**Pros:**
+- High accuracy with word-level timestamps
+- Speaker diarization support
+- Scales well for long audio
+
+**Cons:**
+- Requires Google Cloud credentials
+- Cloud upload (privacy consideration)
+- Cost per usage
+- Internet required
+
 ## Available Scripts
 
 ### `scripts/transcribe.py`
@@ -72,8 +101,10 @@ python skills/video-transcriber/scripts/transcribe.py <video_path> [options]
 ```
 
 **Options:**
-- `--model, -m`: Model to use (whisper, gemini) - default: auto
+- `--model, -m`: Model to use (whisper, gemini, openai, google) - default: auto
 - `--whisper-model`: Whisper model size (tiny, base, small, medium, large-v3) - default: medium
+- `--openai-model`: OpenAI Whisper model (default: whisper-1)
+- `--google-model`: Google Speech model (default: latest_long)
 - `--use-faster`: Use faster-whisper for speed - default: True
 - `--output, -o`: Output file path (default: `<video_path>.srt`)
 - `--format`: Output format (srt, vtt, json) - default: srt
@@ -92,6 +123,18 @@ python skills/video-transcriber/scripts/transcribe.py video.mp4
 Transcribe with Gemini API:
 ```bash
 python skills/video-transcriber/scripts/transcribe.py video.mp4 --model gemini
+```
+
+Transcribe with OpenAI Whisper API:
+```bash
+python skills/video-transcriber/scripts/transcribe.py video.mp4 --model openai --format json
+```
+
+Note: When using `--model openai`, the system will try Google Speech-to-Text as a fallback if OpenAI fails and Google credentials are available.
+
+Transcribe with Google Speech-to-Text:
+```bash
+python skills/video-transcriber/scripts/transcribe.py video.mp4 --model google --format json
 ```
 
 Transcribe with speaker diarization and emotion detection (Gemini):
@@ -179,11 +222,19 @@ When `--model auto`, the system selects based on:
 4. **Feature requirements**: Use gemini if speaker diarization or emotion detection needed
 5. **Default**: Use gemini-flash-lite-latest
 
+Note: `openai` and `google` models must be selected explicitly. Auto does not switch to them.
+
 ## Environment Variables
 
 ```bash
 # For Gemini API
 export GEMINI_API_KEY="your-api-key"
+
+# For OpenAI Whisper API
+export OPENAI_API_KEY="your-api-key"
+
+# For Google Speech-to-Text
+export GOOGLE_APPLICATION_CREDENTIALS="/path/to/service-account.json"
 
 # Optional: For Vertex AI
 export GOOGLE_PROJECT_ID="your-project-id"

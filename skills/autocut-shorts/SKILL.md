@@ -17,7 +17,7 @@ This is the main orchestration skill that combines all other skills to automatic
 This skill automates the entire workflow:
 
 1. **Download** video from YouTube URL (if provided)
-2. **Transcribe** audio using Whisper or Gemini API
+2. **Transcribe** audio using Whisper (local), OpenAI Whisper API, Google Speech-to-Text, or Gemini API
 3. **Perform speaker diarization** (pyannote or Gemini) - identifies who speaks when
 4. **Detect highlights** using combined analysis:
    - Transcript analysis (hooks, viral phrases)
@@ -28,7 +28,7 @@ This skill automates the entire workflow:
 5. **Select** best segments (15-60 seconds each)
 6. **Trim** video to highlight segments
 7. **Resize** to 9:16 portrait format (1080x1920)
-8. **Add** burned-in subtitles with speaker labels
+8. **Add** burned-in subtitles (segment captions or word-level karaoke when word timestamps are available)
 9. **Export** multiple clips ready for upload
 
 ## When to Use
@@ -57,7 +57,10 @@ python skills/autocut-shorts/scripts/autocut.py <video_or_url> [options]
 - `--max-duration`: Maximum clip duration in seconds (default: 60)
 - `--platform`: Target platform (tiktok, shorts, reels, facebook) - default: tiktok
 - `--output-dir`: Output directory (default: `./shorts/`)
-- `--transcription-model`: Transcription model (auto, whisper, gemini) - default: auto
+- `--transcription-model`: Transcription model (auto, whisper, gemini, openai, google) - default: auto
+- `--whisper-model`: Whisper model size (tiny, base, small, medium, large-v3) - default: large-v3
+- `--openai-model`: OpenAI Whisper model (default: whisper-1)
+- `--google-model`: Google Speech model (default: latest_long)
 - `--diarization-model`: Speaker diarization (auto, pyannote, gemini, none) - default: auto
 - `--huggingface-token`: HuggingFace token for pyannote (or use env var)
 - `--focus-speaker`: Extract clips only for specific speaker (SPEAKER_00, etc.)
@@ -67,8 +70,10 @@ python skills/autocut-shorts/scripts/autocut.py <video_or_url> [options]
 - `--skip-scenes`: Skip scene detection
 - `--skip-laughter`: Skip laughter detection
 - `--skip-sentiment`: Skip sentiment analysis
-- `--transcript-path`: Use existing transcript file
-- `--style`: Subtitle style (tiktok, shorts, reels) - default: tiktok
+- `--transcript-path`: Use existing transcript file (SRT/VTT/JSON)
+- `--word-timestamps-path`: Provide word-timestamp JSON for karaoke subtitles
+- `--subtitle-mode`: Subtitle mode (auto, word, segment) - default: auto
+- `--style`: Subtitle style (tiktok, shorts, reels, default) - default: tiktok
 
 **Examples:**
 
@@ -92,6 +97,21 @@ Use Gemini for transcription:
 python skills/autocut-shorts/scripts/autocut.py video.mp4 --transcription-model gemini
 ```
 
+Quick local test with Whisper tiny:
+```bash
+python skills/autocut-shorts/scripts/autocut.py video.mp4 --transcription-model whisper --whisper-model tiny
+```
+
+Use OpenAI Whisper API for word-level captions:
+```bash
+python skills/autocut-shorts/scripts/autocut.py video.mp4 --transcription-model openai --subtitle-mode word
+```
+
+Use Google Speech-to-Text for word-level captions:
+```bash
+python skills/autocut-shorts/scripts/autocut.py video.mp4 --transcription-model google --subtitle-mode word
+```
+
 Custom duration range:
 ```bash
 python skills/autocut-shorts/scripts/autocut.py video.mp4 --min-duration 20 --max-duration 45
@@ -100,6 +120,11 @@ python skills/autocut-shorts/scripts/autocut.py video.mp4 --min-duration 20 --ma
 Use existing transcript:
 ```bash
 python skills/autocut-shorts/scripts/autocut.py video.mp4 --transcript-path video.srt --skip-transcribe
+```
+
+Use word timestamps JSON directly:
+```bash
+python skills/autocut-shorts/scripts/autocut.py video.mp4 --word-timestamps-path words.json --subtitle-mode word
 ```
 
 ### `scripts/quick_cut.py`
@@ -133,8 +158,10 @@ If URL provided:
 ### Step 2: Transcribe
 
 Extracts audio and transcribes:
-- **Auto mode**: Chooses based on requirements
+- **Auto mode**: Chooses between whisper or gemini based on requirements
 - **Whisper**: Local processing, good for privacy
+- **OpenAI Whisper API**: Cloud processing with word-level timestamps
+- **Google STT**: Cloud processing with word-level timestamps and diarization
 - **Gemini**: Cloud processing, better quality + features
 
 ### Step 3: Detect Highlights
@@ -176,9 +203,8 @@ Converts to 9:16:
 
 Burns in captions:
 - Platform-specific styling
-- White text with black outline
-- Bottom position
-- Readable size (24-28px)
+- Segment captions (SRT/VTT) or word-level karaoke (ASS) when word timestamps are available
+- Safe area padding for TikTok/Shorts UI
 
 ### Step 8: Export
 
@@ -192,10 +218,13 @@ Saves final clips:
 ### Directory Structure
 ```
 shorts/
-  video_short_001.mp4
-  video_short_002.mp4
-  video_short_003.mp4
-  report.json
+  <video_slug>_<YYYYMMDD-HHMMSS>/
+    clip_001/
+      master.mp4
+      data.json
+    clip_002/
+      master.mp4
+      data.json
 ```
 
 ### JSON Report

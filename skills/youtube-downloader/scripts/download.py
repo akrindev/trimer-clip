@@ -10,7 +10,7 @@ from typing import Dict, Any, Optional
 def download_video(
     url: str,
     output_path: Optional[str] = None,
-    format: str = "best[ext=mp4]/best",
+    format: str = "bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best",
     quality: Optional[str] = None,
     audio_only: bool = False,
     audio_format: str = "mp3",
@@ -22,7 +22,7 @@ def download_video(
 
     if quality:
         quality_formats = {
-            "best": "best[ext=mp4]/best",
+            "best": "bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best",
             "1080": "bestvideo[height<=1080][ext=mp4]+bestaudio[ext=m4a]/best[height<=1080][ext=mp4]/best",
             "720": "bestvideo[height<=720][ext=mp4]+bestaudio[ext=m4a]/best[height<=720][ext=mp4]/best",
             "480": "bestvideo[height<=480][ext=mp4]+bestaudio[ext=m4a]/best[height<=480][ext=mp4]/best",
@@ -78,7 +78,10 @@ def download_video(
                 "uploader": info.get("uploader"),
                 "upload_date": info.get("upload_date"),
                 "view_count": info.get("view_count"),
-                "url": url,
+                "url": info.get("webpage_url") or url,
+                "video_id": info.get("id"),
+                "description": info.get("description"),
+                "tags": info.get("tags") or [],
             }
 
             if audio_only:
